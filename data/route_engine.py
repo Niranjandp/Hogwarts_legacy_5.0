@@ -32,9 +32,9 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return R * c
 
 
-def get_route(api_key: str = "") -> List[Tuple[float, float, float]]:
+def get_route(api_key: str = "", origin: str = "Chennai", destination: str = "Coimbatore") -> List[Tuple[float, float, float]]:
     """
-    Returns the Chennai to Coimbatore route as a list of 3-tuples:
+    Returns the route as a list of 3-tuples:
     [(latitude, longitude, km_from_start), ...]
 
     If a valid Google Maps API Key is passed (or set in environment),
@@ -43,9 +43,11 @@ def get_route(api_key: str = "") -> List[Tuple[float, float, float]]:
     """
     key = api_key or GOOGLE_MAPS_API_KEY
     if key:
-        google_route = fetch_google_maps_route("Chennai", "Coimbatore", key)
+        google_route = fetch_google_maps_route(origin, destination, key)
         if google_route:
             return google_route
+
+    return [(wp[0], wp[1], wp[2]) for wp in ROUTE_WAYPOINTS]
 
     return [(wp[0], wp[1], wp[2]) for wp in ROUTE_WAYPOINTS]
 

@@ -194,17 +194,49 @@ STATION_DEFINITIONS = [
 ]
 
 
+def interpolate_route_list(route: List[Tuple[float, float, float]], target_km: float) -> Tuple[float, float]:
+    if not route:
+        return 0.0, 0.0
+    if target_km <= route[0][2]:
+        return route[0][0], route[0][1]
+    if target_km >= route[-1][2]:
+        return route[-1][0], route[-1][1]
+        
+    for i in range(len(route) - 1):
+        wp1 = route[i]
+        wp2 = route[i + 1]
+        if wp1[2] <= target_km <= wp2[2]:
+            segment = wp2[2] - wp1[2]
+            if segment <= 1e-6:
+                return wp1[0], wp1[1]
+            frac = (target_km - wp1[2]) / segment
+            lat = wp1[0] + frac * (wp2[0] - wp1[0])
+            lon = wp1[1] + frac * (wp2[1] - wp1[1])
+            return lat, lon
+    return route[-1][0], route[-1][1]
+
+
 def get_stations_along_route(route: Optional[List[Tuple[float, float, float]]] = None) -> List[Station]:
     """
-    Constructs and returns the list of 14 synthetic charging stations along the Chennai-Coimbatore route.
-    If route is provided, station GPS coordinates are interpolated precisely along the route path.
+    Constructs and returns the list of synthetic charging stations.
+    If route is provided, station GPS coordinates are scaled and interpolated precisely along the route path.
     """
     stations: List[Station] = []
+    
+    total_km = 552.0
+    if route and len(route) > 0:
+        total_km = route[-1][2]
+        
+    scale_factor = total_km / 552.0 if total_km > 0 else 1.0
 
     for defn in STATION_DEFINITIONS:
-        km = defn["km_mark"]
-        point = interpolate_route_point(km)
-        lat, lon = point[0], point[1]
+        km = defn["km_mark"] * scale_factor
+        
+        if route:
+            lat, lon = interpolate_route_list(route, km)
+        else:
+            point = interpolate_route_point(km)
+            lat, lon = point[0], point[1]
 
         station = Station(
             id=defn["id"],

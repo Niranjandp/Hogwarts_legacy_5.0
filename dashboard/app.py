@@ -122,8 +122,17 @@ st.markdown("""
 # INITIALIZE SESSION STATE & SIMULATION DATA
 # ==============================================================================
 
+if "origin" not in st.session_state:
+    st.session_state["origin"] = ORIGIN_NAME
+
+if "dest" not in st.session_state:
+    st.session_state["dest"] = DESTINATION_NAME
+
+if "route_points" not in st.session_state:
+    st.session_state["route_points"] = get_route(api_key=GOOGLE_MAPS_API_KEY, origin=st.session_state["origin"], destination=st.session_state["dest"])
+
 if "stations" not in st.session_state:
-    raw_stations = get_stations_along_route()
+    raw_stations = get_stations_along_route(st.session_state["route_points"])
     st.session_state["stations"] = simulate_telemetry(raw_stations, current_hour=14.0, seed=42)
 
 if "race_results" not in st.session_state:
@@ -138,8 +147,9 @@ if "offline_station_id" not in st.session_state:
 # ==============================================================================
 
 st.markdown('<div class="main-title">EVolve: Enterprise EV Charging Optimization System</div>', unsafe_allow_html=True)
+route_dist = st.session_state["route_points"][-1][2] if st.session_state["route_points"] else 0.0
 st.markdown(
-    f'<div class="sub-title">Real-time corridor optimization evaluating <b>Classical Dynamic Programming</b> and <b>Quantum-Inspired QUBO heuristics</b> along the <b>{ORIGIN_NAME} ➔ {DESTINATION_NAME}</b> highway corridor ({TOTAL_ROUTE_DISTANCE_KM:.0f} km).</div>',
+    f'<div class="sub-title">Real-time corridor optimization evaluating <b>Classical Dynamic Programming</b> and <b>Quantum-Inspired QUBO heuristics</b> along the <b>{st.session_state["origin"]} ➔ {st.session_state["dest"]}</b> highway corridor ({route_dist:.0f} km).</div>',
     unsafe_allow_html=True,
 )
 
@@ -151,16 +161,23 @@ st.markdown(
 st.sidebar.markdown("### Vehicle & Telemetry Configuration")
 
 with st.sidebar.expander("Route Definition & Mapping", expanded=True):
-    st.text_input("Start Location", value=ORIGIN_NAME, disabled=True)
-    st.text_input("Destination", value=DESTINATION_NAME, disabled=True)
-    st.text_input("Corridor Distance", value=f"{TOTAL_ROUTE_DISTANCE_KM:.1f} km (NH48 / NH44 / NH544)", disabled=True)
-    gmaps_key = st.text_input(
-        "Google Maps API Key",
-        value=GOOGLE_MAPS_API_KEY,
-        type="password",
-        help="Enter your Google Maps Platform API key to fetch real-time live traffic routes and Google Maps tiles.",
-    )
+    origin_input = st.text_input("Start Location", value=st.session_state["origin"])
+    dest_input = st.text_input("Destination", value=st.session_state["dest"])
+    
+    current_dist = st.session_state["route_points"][-1][2] if st.session_state["route_points"] else 0.0
+    st.text_input("Corridor Distance", value=f"{current_dist:.1f} km", disabled=True)
     map_tile_provider = st.selectbox("Map Style", options=["Google Maps", "CartoDB Dark", "OpenStreetMap"], index=0)
+
+if origin_input != st.session_state["origin"] or dest_input != st.session_state["dest"]:
+    st.session_state["origin"] = origin_input
+    st.session_state["dest"] = dest_input
+    with st.spinner("Calculating new route via Google Maps ML models..."):
+        new_route = get_route(api_key=GOOGLE_MAPS_API_KEY, origin=origin_input, destination=dest_input)
+        st.session_state["route_points"] = new_route
+        raw_st = get_stations_along_route(new_route)
+        st.session_state["stations"] = simulate_telemetry(raw_st, current_hour=np.random.uniform(7.0, 22.0))
+        st.session_state["race_results"] = None
+    st.rerun()
 
 with st.sidebar.expander("EV Battery Specifications", expanded=True):
     battery_cap = st.slider("Battery Capacity (kWh)", min_value=40.0, max_value=100.0, value=DEFAULT_BATTERY_CAPACITY_KWH, step=5.0)
@@ -189,7 +206,7 @@ btn_run_race = st.sidebar.button("Execute Optimization Solvers", type="primary",
 btn_resimulate = st.sidebar.button("Refresh Station Telemetry", use_container_width=True)
 
 if btn_resimulate:
-    raw_st = get_stations_along_route()
+    raw_st = get_stations_along_route(st.session_state["route_points"])
     st.session_state["stations"] = simulate_telemetry(raw_st, current_hour=np.random.uniform(7.0, 22.0))
     st.session_state["race_results"] = None
     st.sidebar.success("Updated telemetry!")
@@ -215,35 +232,45 @@ winners = race_data["winners"]
 
 st.markdown("### Geospatial Route & Live Telemetry")
 
-route_points = get_route(api_key=gmaps_key)
-map_center = [12.05, 78.50]  # Centered along Tamil Nadu highway spine
+route_points = st.session_state["route_points"]
+current_dist = route_points[-1][2] if route_points else 0.0
+
+if route_points:
+    map_center = [
+        (route_points[0][0] + route_points[-1][0]) / 2.0,
+        (route_points[0][1] + route_points[-1][1]) / 2.0,
+    ]
+else:
+    map_center = [12.05, 78.50]
 
 if map_tile_provider == "Google Maps":
+    gmaps_key = GOOGLE_MAPS_API_KEY
     google_tile_url = f"https://mt1.google.com/vt/lyrs=m&x={{x}}&y={{y}}&z={{z}}&key={gmaps_key}" if gmaps_key else "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-    m = folium.Map(location=map_center, zoom_start=8, tiles=google_tile_url, attr="Google Maps")
+    m = folium.Map(location=map_center, zoom_start=7, tiles=google_tile_url, attr="Google Maps")
 elif map_tile_provider == "OpenStreetMap":
-    m = folium.Map(location=map_center, zoom_start=8, tiles="OpenStreetMap")
+    m = folium.Map(location=map_center, zoom_start=7, tiles="OpenStreetMap")
 else:
-    m = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB dark_matter")
+    m = folium.Map(location=map_center, zoom_start=7, tiles="CartoDB dark_matter")
 
-# Add highway route line string
-polyline_coords = [(pt[0], pt[1]) for pt in route_points]
-folium.PolyLine(
-    polyline_coords, color="#1E88E5", weight=5, opacity=0.85, tooltip=f"NH Highway Corridor ({TOTAL_ROUTE_DISTANCE_KM:.0f} km)"
-).add_to(m)
+if route_points:
+    # Add highway route line string
+    polyline_coords = [(pt[0], pt[1]) for pt in route_points]
+    folium.PolyLine(
+        polyline_coords, color="#1E88E5", weight=5, opacity=0.85, tooltip=f"Route Corridor ({current_dist:.0f} km)"
+    ).add_to(m)
 
-# Origin and Destination Markers
-folium.Marker(
-    [route_points[0][0], route_points[0][1]],
-    popup=f"<b>Origin:</b> {ORIGIN_NAME}",
-    icon=folium.Icon(color="green", icon="play"),
-).add_to(m)
+    # Origin and Destination Markers
+    folium.Marker(
+        [route_points[0][0], route_points[0][1]],
+        popup=f"<b>Origin:</b> {st.session_state['origin']}",
+        icon=folium.Icon(color="green", icon="play"),
+    ).add_to(m)
 
-folium.Marker(
-    [route_points[-1][0], route_points[-1][1]],
-    popup=f"<b>Destination:</b> {DESTINATION_NAME}",
-    icon=folium.Icon(color="red", icon="flag"),
-).add_to(m)
+    folium.Marker(
+        [route_points[-1][0], route_points[-1][1]],
+        popup=f"<b>Destination:</b> {st.session_state['dest']}",
+        icon=folium.Icon(color="red", icon="flag"),
+    ).add_to(m)
 
 # Identify stops chosen by algorithms
 dp_stops = set(dp_res.get("stops", []))
@@ -399,39 +426,7 @@ else:
     st.write("- *No intermediate stops required to safely reach the destination.*")
 st.markdown('</div>', unsafe_allow_html=True)
 
-# Render a specific map for the chosen optimal route
-st.markdown("#### Optimal Route Visualization")
-opt_map = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB dark_matter")
 
-# Add the route line
-folium.PolyLine(
-    polyline_coords, color="#10b981", weight=5, opacity=0.85, tooltip="Optimal Route Path"
-).add_to(opt_map)
-
-# Add Origin and Destination
-folium.Marker(
-    [route_points[0][0], route_points[0][1]],
-    popup=f"Origin: {ORIGIN_NAME}",
-    icon=folium.Icon(color="green", icon="play"),
-).add_to(opt_map)
-folium.Marker(
-    [route_points[-1][0], route_points[-1][1]],
-    popup=f"Destination: {DESTINATION_NAME}",
-    icon=folium.Icon(color="red", icon="flag"),
-).add_to(opt_map)
-
-# Add ONLY the chosen stops
-if best_res["stops"]:
-    for sid in best_res["stops"]:
-        st_obj = next((s for s in st.session_state["stations"] if s.id == sid), None)
-        if st_obj:
-            folium.Marker(
-                [st_obj.lat, st_obj.lon],
-                tooltip=f"Charging Stop: {st_obj.name}",
-                icon=folium.Icon(color="purple", icon="bolt", prefix="fa"),
-            ).add_to(opt_map)
-
-st_folium(opt_map, width=1300, height=350, key="optimal_route_map")
 
 
 # ==============================================================================
