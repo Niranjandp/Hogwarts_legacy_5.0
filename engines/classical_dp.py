@@ -172,8 +172,8 @@ def solve(
             break
         cost, prev_s, prev_soc_i, charge_kwh = val
 
-        if prev_s > 0 and prev_s <= len(sorted_stations):
-            st = sorted_stations[prev_s - 1]
+        if curr_s > 0 and curr_s <= len(sorted_stations):
+            st = sorted_stations[curr_s - 1]
             best_stops_reversed.append(st.id)
             if charge_kwh > 0:
                 charge_amounts_map[st.id] = round(charge_kwh, 2)

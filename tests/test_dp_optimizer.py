@@ -2,6 +2,7 @@ import unittest
 
 from core import EV, optimize_charging_plan, validate_solution
 from data.station_finder import get_stations_along_route
+from engines.classical_dp import solve as solve_classical_dp
 
 
 class DynamicProgrammingOptimizerTests(unittest.TestCase):
@@ -26,6 +27,19 @@ class DynamicProgrammingOptimizerTests(unittest.TestCase):
 
         self.assertFalse(plan.is_feasible)
         self.assertTrue(plan.violations)
+
+    def test_dashboard_classical_engine_returns_validator_approved_plan(self):
+        ev = EV()
+        stations = get_stations_along_route()
+        stops, charges, _, _, _ = solve_classical_dp(ev, stations)
+
+        feasible, violations, profile = validate_solution(
+            ev, stations, stops, charges
+        )
+
+        self.assertTrue(feasible, violations)
+        self.assertEqual(set(charges), set(stops))
+        self.assertGreaterEqual(profile[-1]["soc"], 15.0)
 
 
 if __name__ == "__main__":
