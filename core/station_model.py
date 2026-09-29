@@ -67,14 +67,33 @@ class Station:
         except Exception:
             return True  # Fallback to open if parsing fails
 
+    @property
+    def ac_connectors(self) -> List[str]:
+        """Returns list of AC connectors available at this station."""
+        return [
+            c for c in self.connector_types
+            if any(k in c.upper() for k in ["TYPE2", "TYPE 2", "TYPE1", "UNIVERSAL", "15A", "AC", "MENNEKES"])
+        ]
+
+    @property
+    def dc_connectors(self) -> List[str]:
+        """Returns list of DC Fast connectors available at this station."""
+        return [
+            c for c in self.connector_types
+            if any(k in c.upper() for k in ["CCS", "CCS2", "CHADEMO", "GB/T", "NACS", "DC"])
+        ]
+
     def supports_connector(self, ev_connector: str) -> bool:
         """
         Check if station offers a matching connector for the EV.
+        Handles labels like 'CCS2 (DC Fast)' matching 'CCS2'.
         """
         if not ev_connector:
             return True
+        # Extract base connector keyword like 'CCS2' from 'CCS2 (DC Fast)'
+        ev_clean = ev_connector.split("(")[0].strip().upper()
         return any(
-            conn.upper() == ev_connector.upper() or conn.upper() == "UNIVERSAL"
+            ev_clean in conn.upper() or conn.upper() in ev_clean or conn.upper() == "UNIVERSAL"
             for conn in self.connector_types
         )
 

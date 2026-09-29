@@ -7,8 +7,8 @@ import time
 import math
 import random
 from typing import List, Dict, Any, Tuple, Optional
+# pyrefly: ignore [missing-import]
 import neal
-import dimod
 
 from core.ev_model import EV
 from core.station_model import Station

@@ -12,13 +12,16 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import time
 import pandas as pd
 import numpy as np
+# pyrefly: ignore [missing-import]
 import plotly.express as px
+# pyrefly: ignore [missing-import]
 import plotly.graph_objects as go
 # pyrefly: ignore [missing-import]
 import folium
 # pyrefly: ignore [missing-import]
 import streamlit as st
 import requests
+# pyrefly: ignore [missing-import]
 from streamlit_folium import st_folium
 
 def get_current_location():
@@ -51,7 +54,7 @@ from core.ev_model import EV
 from core.station_model import Station
 from data.route_engine import get_route, get_route_waypoints, get_route_distance
 from data.station_finder import get_stations_along_route
-from data.telemetry_sim import simulate_telemetry, update_single_station
+from data.telemetry_sim import simulate_telemetry, update_single_station, tick_live_telemetry
 from experiments.race_runner import run_race, run_experiments
 
 
@@ -163,6 +166,18 @@ if "race_results" not in st.session_state:
 if "offline_station_id" not in st.session_state:
     st.session_state["offline_station_id"] = "None"
 
+if "last_telemetry_tick" not in st.session_state:
+    st.session_state["last_telemetry_tick"] = time.time()
+
+if "selected_station_id" not in st.session_state:
+    st.session_state["selected_station_id"] = None
+
+if "map_zoom" not in st.session_state:
+    st.session_state["map_zoom"] = None
+
+if "map_center" not in st.session_state:
+    st.session_state["map_center"] = None
+
 
 # ==============================================================================
 # HEADER SECTION
@@ -213,12 +228,33 @@ if _route_stale:
         st.session_state["race_results"] = None
     st.rerun()
 
+with st.sidebar.expander("Live Telemetry Auto-Stream (25s)", expanded=True):
+    auto_refresh_enabled = st.toggle(
+        "⏱️ Auto-Refresh Every 25 Seconds",
+        value=True,
+        help="Automatically updates station occupancy, queue times, and dynamic tariffs every 25 seconds."
+    )
+    col_ref1, col_ref2 = st.columns([1, 1])
+    with col_ref1:
+        btn_refresh_now = st.button("⚡ Refresh Now", use_container_width=True)
+    with col_ref2:
+        st.caption("Interval: **25s**")
+    if auto_refresh_enabled:
+        st.caption("🟢 **Stream Active**: Syncing live every 25s")
+    else:
+        st.caption("⏸️ **Stream Paused**")
+
 with st.sidebar.expander("EV Battery Specifications", expanded=True):
     battery_cap = st.slider("Battery Capacity (kWh)", min_value=40.0, max_value=100.0, value=DEFAULT_BATTERY_CAPACITY_KWH, step=5.0)
     current_soc = st.slider("Current State of Charge (%)", min_value=10.0, max_value=90.0, value=DEFAULT_CURRENT_SOC_PERCENT, step=5.0)
     consumption_rate = st.slider("Consumption Rate (kWh/100km)", min_value=4.0, max_value=25.0, value=DEFAULT_CONSUMPTION_KWH_PER_100KM, step=0.5)
     max_charge_power = st.select_slider("Max Charging Power (kW)", options=[30.0, 50.0, 60.0, 120.0, 150.0, 240.0], value=DEFAULT_MAX_CHARGING_POWER_KW)
-    connector_type = st.selectbox("Connector Type", options=["CCS2", "Type2", "CHAdeMO"], index=0)
+    connector_type = st.selectbox(
+        "Connector Type",
+        options=["CCS2 (DC Fast)", "Type2 (AC)", "CHAdeMO (DC Fast)"],
+        index=0,
+        help="Choose connector matching your vehicle inlet (AC or DC Fast)."
+    )
 
 with st.sidebar.expander("Multi-Objective Optimization Weights", expanded=True):
     alpha_weight = st.slider("Alpha (Weight for Journey Time)", min_value=0.0, max_value=1.0, value=DEFAULT_ALPHA, step=0.05)
@@ -239,138 +275,264 @@ st.sidebar.markdown("---")
 btn_run_race = st.sidebar.button("Execute Optimization Solvers", type="primary", width="stretch")
 btn_resimulate = st.sidebar.button("Refresh Station Telemetry", width="stretch")
 
-if btn_resimulate:
-    raw_st = get_stations_along_route(st.session_state["route_points"])
-    st.session_state["stations"] = simulate_telemetry(raw_st, current_hour=np.random.uniform(7.0, 22.0))
-    st.session_state["race_results"] = None
+if btn_resimulate or btn_refresh_now:
+    st.session_state["stations"] = tick_live_telemetry(
+        st.session_state["stations"],
+        current_hour=np.random.uniform(7.0, 22.0),
+        offline_id=st.session_state.get("offline_station_id", "None")
+    )
+    st.session_state["last_telemetry_tick"] = time.time()
+    st.session_state["race_results"] = run_race(
+        user_ev, st.session_state["stations"], alpha=alpha_weight, beta=beta_weight
+    )
     st.sidebar.success("Updated telemetry!")
+    st.rerun()
 
 # Run Race logic when clicked or auto-initialized
-if btn_run_race or st.session_state["race_results"] is None:
+if btn_run_race or st.session_state.get("race_results") is None:
     with st.spinner("Racing Classical DP vs Quantum QUBO solvers in parallel..."):
         st.session_state["race_results"] = run_race(
             user_ev, st.session_state["stations"], alpha=alpha_weight, beta=beta_weight
         )
 
 
-# Extract active race results
-race_data = st.session_state["race_results"]
-dp_res = race_data["classical"]
-qubo_res = race_data["quantum"]
-winners = race_data["winners"]
-
-
 # ==============================================================================
-# SECTION 2: INTERACTIVE ROUTE MAP (Folium & Google Maps Platform Tiles)
+# ==============================================================================
+# SECTION 2: INTERACTIVE ROUTE MAP & LIVE TELEMETRY (AUTO-SYNC EVERY 25s)
 # ==============================================================================
 
-st.markdown("### Geospatial Route & Live Telemetry")
+@st.fragment(run_every=25 if auto_refresh_enabled else None)
+def render_live_route_map():
+    # 25-Second Live Telemetry Background Tick
+    now = time.time()
+    if now - st.session_state.get("last_telemetry_tick", 0) >= 20.0:
+        st.session_state["stations"] = tick_live_telemetry(
+            st.session_state["stations"],
+            current_hour=np.random.uniform(7.0, 22.0),
+            offline_id=st.session_state.get("offline_station_id", "None"),
+        )
+        st.session_state["last_telemetry_tick"] = now
+        st.session_state["race_results"] = run_race(
+            user_ev, st.session_state["stations"], alpha=alpha_weight, beta=beta_weight
+        )
 
-route_points = st.session_state["route_points"]
-current_dist = route_points[-1][2] if route_points else 0.0
+    # Active race results for map markers
+    race_data = st.session_state["race_results"]
+    dp_res = race_data["classical"]
+    qubo_res = race_data["quantum"]
 
-if route_points:
-    map_center = [
-        (route_points[0][0] + route_points[-1][0]) / 2.0,
-        (route_points[0][1] + route_points[-1][1]) / 2.0,
-    ]
-else:
-    map_center = [12.05, 78.50]
+    col_map_hdr1, col_map_hdr2 = st.columns([3, 2])
+    with col_map_hdr1:
+        st.markdown("### Geospatial Route & Live Telemetry")
+        last_sync_str = time.strftime('%H:%M:%S', time.localtime(st.session_state.get("last_telemetry_tick", time.time())))
+        st.caption(f"🟢 **Live Telemetry Stream Active** • Auto-refreshes every 25s • Last sync: `{last_sync_str}`")
+    with col_map_hdr2:
+        st_opts = ["(Auto: Click marker on map)"] + [
+            f"{s.id}: {s.name} ({s.charger_type} {s.max_power_kw:.0f}kW)"
+            for s in st.session_state["stations"]
+        ]
+        curr_id = st.session_state.get("selected_station_id")
+        sel_idx = 0
+        if curr_id:
+            for idx, opt in enumerate(st_opts):
+                if opt.startswith(f"{curr_id}:"):
+                    sel_idx = idx
+                    break
+        chosen_opt = st.selectbox(
+            "📍 Pin Station Popup (White Box) for Real-Time Updates:",
+            options=st_opts,
+            index=sel_idx,
+            help="Select a station to keep its popup open on the map. The box updates every 25 seconds.",
+        )
+        if chosen_opt != "(Auto: Click marker on map)":
+            chosen_id = chosen_opt.split(":")[0].strip()
+            if st.session_state.get("selected_station_id") != chosen_id:
+                st.session_state["selected_station_id"] = chosen_id
 
-if map_tile_provider == "Google Maps":
-    gmaps_key = GOOGLE_MAPS_API_KEY
-    google_tile_url = f"https://mt1.google.com/vt/lyrs=m&x={{x}}&y={{y}}&z={{z}}&key={gmaps_key}" if gmaps_key else "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
-    m = folium.Map(location=map_center, zoom_start=7, tiles=google_tile_url, attr="Google Maps")
-elif map_tile_provider == "OpenStreetMap":
-    m = folium.Map(location=map_center, zoom_start=7, tiles="OpenStreetMap")
-else:
-    m = folium.Map(location=map_center, zoom_start=7, tiles="CartoDB dark_matter")
+    route_points = st.session_state["route_points"]
+    current_dist = route_points[-1][2] if route_points else 0.0
 
-if route_points:
-    # Add highway route line string
-    polyline_coords = [(pt[0], pt[1]) for pt in route_points]
-    folium.PolyLine(
-        polyline_coords, color="#1E88E5", weight=5, opacity=0.85, tooltip=f"Route Corridor ({current_dist:.0f} km)"
-    ).add_to(m)
-
-    # Origin and Destination Markers
-    folium.Marker(
-        [route_points[0][0], route_points[0][1]],
-        popup=f"<b>Origin:</b> {st.session_state['origin']}",
-        icon=folium.Icon(color="green", icon="play"),
-    ).add_to(m)
-
-    folium.Marker(
-        [route_points[-1][0], route_points[-1][1]],
-        popup=f"<b>Destination:</b> {st.session_state['dest']}",
-        icon=folium.Icon(color="red", icon="flag"),
-    ).add_to(m)
-
-# Identify stops chosen by algorithms
-dp_stops = set(dp_res.get("stops", []))
-qubo_stops = set(qubo_res.get("stops", []))
-
-# Add Station Markers
-for st_obj in st.session_state["stations"]:
-    is_dp = st_obj.id in dp_stops
-    is_qubo = st_obj.id in qubo_stops
-
-    # Marker color rules
-    if not st_obj.is_operational:
-        marker_color = "red"
-        status_str = "<span style='color:red;'><b>OFFLINE</b></span>"
-    elif st_obj.available_slots == 0:
-        marker_color = "orange"
-        status_str = "<span style='color:orange;'><b>BUSY (0 Slots)</b></span>"
+    if route_points:
+        map_center = [
+            (route_points[0][0] + route_points[-1][0]) / 2.0,
+            (route_points[0][1] + route_points[-1][1]) / 2.0,
+        ]
     else:
-        marker_color = "green"
-        status_str = "<span style='color:green;'><b>AVAILABLE</b></span>"
+        map_center = [12.05, 78.50]
 
-    # Icon highlight for race selections
-    if is_dp and is_qubo:
-        icon_type = "star"
-        icon_color = "purple"
-        tag = " 🌟 Chosen by Both Solvers!"
-    elif is_dp:
-        icon_type = "flash"
-        icon_color = "orange"
-        tag = " 🟧 Chosen by Classical DP"
-    elif is_qubo:
-        icon_type = "bolt"
-        icon_color = "purple"
-        tag = " 🟪 Chosen by Quantum QUBO"
+    if map_tile_provider == "Google Maps":
+        gmaps_key = GOOGLE_MAPS_API_KEY
+        google_tile_url = f"https://mt1.google.com/vt/lyrs=m&x={{x}}&y={{y}}&z={{z}}&key={gmaps_key}" if gmaps_key else "https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+        m = folium.Map(location=map_center, zoom_start=7, tiles=google_tile_url, attr="Google Maps")
+    elif map_tile_provider == "OpenStreetMap":
+        m = folium.Map(location=map_center, zoom_start=7, tiles="OpenStreetMap")
     else:
-        icon_type = "info-sign"
-        icon_color = marker_color
-        tag = ""
+        m = folium.Map(location=map_center, zoom_start=7, tiles="CartoDB dark_matter")
 
-    popup_html = f"""
-    <div style='font-family: sans-serif; min-width: 220px;'>
-        <h4 style='margin-bottom:4px; color:#1E88E5;'>{st_obj.name}{tag}</h4>
-        <b>Status:</b> {status_str}<br/>
-        <b>Distance:</b> {st_obj.distance_from_start_km:.1f} km from start<br/>
-        <b>Charger:</b> {st_obj.charger_type} ({st_obj.max_power_kw:.0f} kW)<br/>
-        <b>Bays:</b> {st_obj.available_slots} / {st_obj.num_slots} available<br/>
-        <b>Queue Wait:</b> {st_obj.wait_time_minutes:.0f} mins<br/>
-        <b>Dynamic Price:</b> ₹{st_obj.price_per_kwh:.2f} / kWh<br/>
-        <b>Connectors:</b> {', '.join(st_obj.connector_types)}<br/>
-    </div>
-    """
+    if route_points:
+        # Add highway route line string
+        polyline_coords = [(pt[0], pt[1]) for pt in route_points]
+        folium.PolyLine(
+            polyline_coords, color="#1E88E5", weight=5, opacity=0.85, tooltip=f"Route Corridor ({current_dist:.0f} km)"
+        ).add_to(m)
 
-    folium.Marker(
-        [st_obj.lat, st_obj.lon],
-        popup=folium.Popup(popup_html, max_width=300),
-        tooltip=f"{st_obj.name} ({st_obj.distance_from_start_km:.0f} km)",
-        icon=folium.Icon(color=icon_color, icon=icon_type, prefix="fa" if "fa" in icon_type else "glyphicon"),
-    ).add_to(m)
+        # Origin and Destination Markers
+        folium.Marker(
+            [route_points[0][0], route_points[0][1]],
+            popup=f"<b>Origin:</b> {st.session_state['origin']}",
+            icon=folium.Icon(color="green", icon="play"),
+        ).add_to(m)
 
-# Render Folium Map in Streamlit
-st_folium(m, width=1300, height=450)
+        folium.Marker(
+            [route_points[-1][0], route_points[-1][1]],
+            popup=f"<b>Destination:</b> {st.session_state['dest']}",
+            icon=folium.Icon(color="red", icon="flag"),
+        ).add_to(m)
+
+    # Identify stops chosen by algorithms
+    dp_stops = set(dp_res.get("stops", []))
+    qubo_stops = set(qubo_res.get("stops", []))
+
+    # Add Station Markers
+    for st_obj in st.session_state["stations"]:
+        is_dp = st_obj.id in dp_stops
+        is_qubo = st_obj.id in qubo_stops
+
+        # Marker color rules
+        if not st_obj.is_operational:
+            marker_color = "red"
+            status_str = "<span style='color:red;'><b>OFFLINE</b></span>"
+        elif st_obj.available_slots == 0:
+            marker_color = "orange"
+            status_str = "<span style='color:orange;'><b>BUSY (0 Slots)</b></span>"
+        else:
+            marker_color = "green"
+            status_str = "<span style='color:green;'><b>AVAILABLE</b></span>"
+
+        # Icon highlight for race selections
+        if is_dp and is_qubo:
+            icon_type = "star"
+            icon_color = "purple"
+            tag = " 🌟 Chosen by Both Solvers!"
+        elif is_dp:
+            icon_type = "flash"
+            icon_color = "orange"
+            tag = " 🟧 Chosen by Classical DP"
+        elif is_qubo:
+            icon_type = "bolt"
+            icon_color = "purple"
+            tag = " 🟪 Chosen by Quantum QUBO"
+        else:
+            icon_type = "info-sign"
+            icon_color = marker_color
+            tag = ""
+
+        # Format AC and DC connectors clearly
+        ac_conns = st_obj.ac_connectors
+        dc_conns = st_obj.dc_connectors
+        ac_display = ", ".join(ac_conns) if ac_conns else "None (DC Only)"
+        dc_display = ", ".join(dc_conns) if dc_conns else "None (AC Only)"
+        is_pinned = (st_obj.id == st.session_state.get("selected_station_id"))
+        last_sync_time = time.strftime('%H:%M:%S', time.localtime(st.session_state.get("last_telemetry_tick", time.time())))
+
+        popup_html = f"""
+        <div style='font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; min-width: 250px; font-size: 13px; line-height: 1.5;'>
+            <div style='margin-bottom:6px; border-bottom: 2px solid #e2e8f0; padding-bottom:4px;'>
+                <h4 style='margin:0; color:#1E88E5; font-size: 15px; font-weight:700;'>{st_obj.name}{tag}</h4>
+            </div>
+            <div>
+                <b>Status:</b> {status_str}<br/>
+                <b>Distance:</b> {st_obj.distance_from_start_km:.1f} km from start<br/>
+                <b>Charger:</b> {st_obj.charger_type} ({st_obj.max_power_kw:.0f} kW)<br/>
+                <b>Bays:</b> <span style='font-weight:700; color:{"#16a34a" if st_obj.available_slots > 0 else "#dc2626"};'>{st_obj.available_slots} / {st_obj.num_slots} available</span><br/>
+                <b>Queue Wait:</b> {st_obj.wait_time_minutes:.0f} mins<br/>
+                <b>Dynamic Price:</b> ₹{st_obj.price_per_kwh:.2f} / kWh<br/>
+                <hr style='margin: 6px 0; border: none; border-top: 1px solid #e2e8f0;'/>
+                <div style='background: #f8fafc; padding: 6px 8px; border-radius: 6px; border: 1px solid #e2e8f0;'>
+                    <b>🔌 AC Connectors:</b> <span style='color:#0369a1; font-weight:600;'>{ac_display}</span><br/>
+                    <b>⚡ DC Connectors:</b> <span style='color:#b91c1c; font-weight:600;'>{dc_display}</span>
+                </div>
+                <div style='margin-top:6px; font-size: 11px; color: #64748b; display: flex; align-items: center; justify-content: space-between; border-top: 1px dashed #cbd5e1; padding-top: 4px;'>
+                    <span>🟢 <i>Live Telemetry</i></span>
+                    <span>🕒 {last_sync_time}</span>
+                </div>
+                <div style='font-size: 10px; color: #94a3b8; text-align: right;'>Auto-updates every 25s</div>
+            </div>
+        </div>
+        """
+
+        folium.Marker(
+            [st_obj.lat, st_obj.lon],
+            popup=folium.Popup(popup_html, max_width=320, show=is_pinned),
+            tooltip=f"{st_obj.name} ({st_obj.distance_from_start_km:.0f} km)",
+            icon=folium.Icon(color=icon_color, icon=icon_type, prefix="fa" if "fa" in icon_type else "glyphicon"),
+        ).add_to(m)
+
+    # Render Folium Map in Streamlit with click and view retention
+    map_output = st_folium(
+        m,
+        width=1300,
+        height=450,
+        zoom=st.session_state.get("map_zoom"),
+        center=st.session_state.get("map_center"),
+        returned_objects=["last_object_clicked", "zoom", "center"],
+    )
+
+    if map_output:
+        if map_output.get("zoom"):
+            st.session_state["map_zoom"] = map_output["zoom"]
+        if map_output.get("center"):
+            c = map_output["center"]
+            st.session_state["map_center"] = [c["lat"], c["lng"]]
+        if map_output.get("last_object_clicked"):
+            click_lat = map_output["last_object_clicked"]["lat"]
+            click_lng = map_output["last_object_clicked"]["lng"]
+            closest_st = min(
+                st.session_state["stations"],
+                key=lambda s: (s.lat - click_lat) ** 2 + (s.lon - click_lng) ** 2
+            )
+            if (closest_st.lat - click_lat) ** 2 + (closest_st.lon - click_lng) ** 2 < 0.05:
+                if st.session_state.get("selected_station_id") != closest_st.id:
+                    st.session_state["selected_station_id"] = closest_st.id
+                    st.rerun(scope="fragment")
+
+    # Pinned station real-time telemetry card
+    if st.session_state.get("selected_station_id"):
+        pinned_st = next((s for s in st.session_state["stations"] if s.id == st.session_state["selected_station_id"]), None)
+        if pinned_st:
+            ac_str = ", ".join(pinned_st.ac_connectors) if pinned_st.ac_connectors else "None"
+            dc_str = ", ".join(pinned_st.dc_connectors) if pinned_st.dc_connectors else "None"
+            st.markdown(
+                f"""
+                <div style="background: rgba(30, 41, 59, 0.85); border: 1px solid #38bdf8; border-radius: 8px; padding: 10px 16px; margin-top: 10px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="color:#38bdf8; font-weight:bold; font-size:1.05rem;">📍 Pinned Live Station: {pinned_st.name}</span>
+                        <span style="margin-left: 10px; color:#94a3b8; font-size:0.9rem;">({pinned_st.distance_from_start_km:.1f} km from start)</span>
+                    </div>
+                    <div style="display:flex; gap:16px; font-size:0.92rem; align-items:center;">
+                        <span><b>Bays:</b> <span style="color:#34d399; font-weight:bold;">{pinned_st.available_slots}/{pinned_st.num_slots}</span></span>
+                        <span><b>Wait:</b> <b>{pinned_st.wait_time_minutes:.0f} mins</b></span>
+                        <span><b>Price:</b> <b>₹{pinned_st.price_per_kwh:.2f}/kWh</b></span>
+                        <span>🔌 <b>AC:</b> {ac_str}</span>
+                        <span>⚡ <b>DC Fast:</b> {dc_str}</span>
+                        <span style="background:#0284c7; color:white; padding:2px 8px; border-radius:12px; font-size:0.75rem;">LIVE 25s TICK</span>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+render_live_route_map()
 
 
 # ==============================================================================
 # SECTION 3: LIVE ALGORITHM RACE PANEL
 # ==============================================================================
+
+race_data = st.session_state["race_results"]
+dp_res = race_data["classical"]
+qubo_res = race_data["quantum"]
+winners = race_data["winners"]
 
 st.markdown("### Algorithmic Solver Execution Results")
 
@@ -484,8 +646,8 @@ comp_df = pd.DataFrame([
     },
     {
         "Performance Metric": "Number of Stops",
-        "Classical DP": len(dp_res["stops"]),
-        "Quantum-Inspired QUBO": len(qubo_res["stops"]),
+        "Classical DP": str(len(dp_res["stops"])),
+        "Quantum-Inspired QUBO": str(len(qubo_res["stops"])),
         "Winner": "Tie" if len(dp_res["stops"]) == len(qubo_res["stops"]) else f"{winners['overall']}",
     },
     {
@@ -502,8 +664,8 @@ comp_df = pd.DataFrame([
     },
     {
         "Performance Metric": "Constraint Violations",
-        "Classical DP": len(dp_res["violations"]),
-        "Quantum-Inspired QUBO": len(qubo_res["violations"]),
+        "Classical DP": str(len(dp_res["violations"])),
+        "Quantum-Inspired QUBO": str(len(qubo_res["violations"])),
         "Winner": "Zero Violations",
     },
     {

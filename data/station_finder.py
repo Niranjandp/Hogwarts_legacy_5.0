@@ -345,6 +345,11 @@ def get_stations_along_route(route: Optional[List[Tuple[float, float, float]]] =
             max_power = random.choice([50.0, 60.0, 120.0, 150.0]) if charger_type == "DC" else 22.0
             num_slots = random.randint(2, 8)
             
+            if charger_type == "DC":
+                conn_types = ["CCS2", "Type2"] if random.random() < 0.8 else ["CCS2", "CHAdeMO", "Type2"]
+            else:
+                conn_types = ["Type2"] if random.random() < 0.6 else ["Type2", "Universal AC"]
+
             station = Station(
                 id=f"ST-{station_id:03d}",
                 name=f"Highway Route Station {station_id}",
@@ -358,7 +363,7 @@ def get_stations_along_route(route: Optional[List[Tuple[float, float, float]]] =
                 price_per_kwh=round(random.uniform(12.0, 18.0), 2),
                 wait_time_minutes=random.choice([0.0, 5.0, 10.0, 15.0]),
                 is_operational=True,
-                connector_types=["CCS2", "Type2"] if charger_type == "DC" else ["Type2"],
+                connector_types=conn_types,
                 operating_hours="24/7",
             )
             stations.append(station)

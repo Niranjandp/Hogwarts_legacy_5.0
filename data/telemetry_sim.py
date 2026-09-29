@@ -120,3 +120,72 @@ def update_single_station(
         updated.price_per_kwh = max(0.0, price_per_kwh)
 
     return updated
+
+
+def tick_live_telemetry(
+    stations: List[Station],
+    current_hour: float = 14.0,
+    offline_id: Optional[str] = None
+) -> List[Station]:
+    """
+    Simulate real-time micro-fluctuations over a 25-second interval:
+    - Vehicles arrive or depart (available slots shift realistically by +/- 1)
+    - Queue waiting times update accordingly
+    - Dynamic energy tariffs fluctuate slightly based on real-time grid load (+/- 0.10 to 0.30 INR)
+    - Preserves user-triggered offline states
+    """
+    is_peak = (8.0 <= current_hour <= 11.0) or (17.0 <= current_hour <= 21.0)
+    updated: List[Station] = []
+
+    for st in stations:
+        copy_st = st.clone()
+
+        # If manually marked offline, preserve offline status
+        if offline_id and str(offline_id).strip() != "None" and copy_st.id == str(offline_id).strip():
+            copy_st.is_operational = False
+            copy_st.available_slots = 0
+            copy_st.wait_time_minutes = 999.0
+            updated.append(copy_st)
+            continue
+
+        if not copy_st.is_operational:
+            # 15% chance of maintenance finishing on tick, otherwise stay offline
+            if random.random() < 0.15:
+                copy_st.is_operational = True
+                copy_st.available_slots = random.randint(1, copy_st.num_slots)
+                copy_st.wait_time_minutes = 0.0
+            updated.append(copy_st)
+            continue
+
+        # Real-time event roll:
+        # In a 25s window, ~40% chance of a bay transition
+        event_roll = random.random()
+        arrival_prob = 0.25 if is_peak else 0.15
+        departure_prob = 0.15 if is_peak else 0.25
+
+        if event_roll < arrival_prob and copy_st.available_slots > 0:
+            # Car arrived & started charging
+            copy_st.available_slots -= 1
+        elif event_roll > (1.0 - departure_prob) and copy_st.available_slots < copy_st.num_slots:
+            # Car finished charging & departed
+            copy_st.available_slots += 1
+
+        # Queue wait time updates
+        if copy_st.available_slots == 0:
+            # Bays full -> queue delay
+            base_wait = copy_st.wait_time_minutes if copy_st.wait_time_minutes > 0 else random.uniform(10.0, 25.0)
+            shift = random.choice([-2.0, -1.0, 0.0, 1.0, 3.0])
+            copy_st.wait_time_minutes = round(max(3.0, min(50.0, base_wait + shift)), 0)
+        elif copy_st.available_slots == 1 and is_peak:
+            copy_st.wait_time_minutes = round(random.choice([0.0, 3.0, 5.0]), 0)
+        else:
+            copy_st.wait_time_minutes = 0.0
+
+        # Dynamic tariff pricing micro-fluctuations (+/- 0.15 INR)
+        price_delta = round(random.uniform(-0.20, 0.20), 2)
+        new_price = round(copy_st.price_per_kwh + price_delta, 2)
+        copy_st.price_per_kwh = max(MIN_PRICE_PER_KWH, min(MAX_PRICE_PER_KWH, new_price))
+
+        updated.append(copy_st)
+
+    return updated
