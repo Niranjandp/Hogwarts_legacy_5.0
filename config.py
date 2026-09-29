@@ -9,7 +9,7 @@ from typing import List, Tuple, Dict, Any
 # ==============================================================================
 # GOOGLE MAPS PLATFORM API INTEGRATION (OPTIONAL)
 # ==============================================================================
-GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
+GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyC4QF5aavOyHDDoUQeouaI1OUhtpo0lQmw")
 USE_GOOGLE_MAPS_API: bool = bool(GOOGLE_MAPS_API_KEY)
 
 # ==============================================================================

@@ -4,8 +4,12 @@ Route Engine and Geographic Coordinate Services with optional Google Maps Platfo
 """
 
 import math
-import requests
 from typing import List, Tuple, Dict, Any, Optional
+
+try:
+    import requests
+except ImportError:
+    requests = None
 from config import ROUTE_WAYPOINTS, TOTAL_ROUTE_DISTANCE_KM, GOOGLE_MAPS_API_KEY
 
 
@@ -50,6 +54,9 @@ def fetch_google_maps_route(origin: str, destination: str, api_key: str) -> Opti
     """
     Fetches live directions and route waypoints from Google Routes API v2.
     """
+    if requests is None:
+        return None
+
     try:
         url = "https://routes.googleapis.com/directions/v2:computeRoutes"
         headers = {

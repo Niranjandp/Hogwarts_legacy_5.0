@@ -31,6 +31,7 @@ from config import (
     DEFAULT_CONNECTOR_TYPE,
     DEFAULT_ALPHA,
     DEFAULT_BETA,
+    GOOGLE_MAPS_API_KEY,
 )
 
 from core.ev_model import EV
@@ -154,12 +155,12 @@ with st.sidebar.expander("📍 Route & Google Maps Settings", expanded=True):
     st.text_input("Destination", value=DESTINATION_NAME, disabled=True)
     st.text_input("Corridor Distance", value=f"{TOTAL_ROUTE_DISTANCE_KM:.1f} km (NH48 / NH44 / NH544)", disabled=True)
     gmaps_key = st.text_input(
-        "🔑 Google Maps API Key (Optional)",
-        value=os.getenv("GOOGLE_MAPS_API_KEY", ""),
+        "🔑 Google Maps API Key",
+        value=GOOGLE_MAPS_API_KEY,
         type="password",
         help="Enter your Google Maps Platform API key to fetch real-time live traffic routes and Google Maps tiles.",
     )
-    map_tile_provider = st.selectbox("Map Style", options=["CartoDB Dark", "Google Maps", "OpenStreetMap"], index=0)
+    map_tile_provider = st.selectbox("Map Style", options=["Google Maps", "CartoDB Dark", "OpenStreetMap"], index=0)
 
 with st.sidebar.expander("🔋 EV Battery & Hardware", expanded=True):
     battery_cap = st.slider("Battery Capacity (kWh)", min_value=40.0, max_value=100.0, value=DEFAULT_BATTERY_CAPACITY_KWH, step=5.0)
