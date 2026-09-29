@@ -6,8 +6,12 @@ Streamlit Interactive Dashboard
 import os
 import sys
 
-# Ensure project root directory is on Python path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Ensure both current directory and project root directory are on Python path
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, ".."))
+for d in [CURRENT_DIR, PARENT_DIR]:
+    if d not in sys.path:
+        sys.path.insert(0, d)
 
 import time
 import pandas as pd
