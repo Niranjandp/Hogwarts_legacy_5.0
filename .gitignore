@@ -1,0 +1,18 @@
+# Python byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments & secrets
+.env
+venv/
+env/
+.venv/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+
+# Legacy / extraneous folders
+Hogwarts_legacy_5.0/
