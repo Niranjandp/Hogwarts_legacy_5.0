@@ -87,15 +87,25 @@ class Station:
         """
         Check if station offers a matching connector for the EV.
         Handles labels like 'CCS2 (DC Fast)' matching 'CCS2'.
+        CCS2 vehicles physically incorporate a Type 2 connector in their upper inlet,
+        allowing them to charge from Type 2 AC charging stations in addition to DC Fast.
         """
         if not ev_connector:
             return True
         # Extract base connector keyword like 'CCS2' from 'CCS2 (DC Fast)'
         ev_clean = ev_connector.split("(")[0].strip().upper()
-        return any(
-            ev_clean in conn.upper() or conn.upper() in ev_clean or conn.upper() == "UNIVERSAL"
-            for conn in self.connector_types
-        )
+        
+        compatible_types = [ev_clean, "UNIVERSAL"]
+        if "CCS2" in ev_clean or "CCS" in ev_clean:
+            compatible_types.extend(["TYPE2", "TYPE 2", "MENNEKES", "UNIVERSAL AC"])
+        elif "TYPE2" in ev_clean or "TYPE 2" in ev_clean:
+            compatible_types.extend(["UNIVERSAL AC"])
+
+        for conn in self.connector_types:
+            c_clean = conn.upper()
+            if any(compat in c_clean or c_clean in compat for compat in compatible_types):
+                return True
+        return False
 
     def can_serve(self, ev: EV, current_time_hour: float = 12.0) -> bool:
         """

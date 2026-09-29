@@ -16,7 +16,7 @@ from core.objective import calculate_objective
 from data.station_finder import get_stations_along_route
 from engines.classical_dp import solve as solve_classical_dp
 from engines.quantum_qubo import solve as solve_quantum_qubo
-from config import DEFAULT_ALPHA, DEFAULT_BETA
+from config import DEFAULT_ALPHA, DEFAULT_BETA, BATTERY_BUFFER_PERCENT, DESTINATION_RESERVE_PERCENT
 
 
 def run_race(
@@ -26,6 +26,10 @@ def run_race(
     alpha: float = DEFAULT_ALPHA,
     beta: float = DEFAULT_BETA,
     average_speed_kmh: float = 75.0,
+    num_reads: int = 100,
+    beta_range: Optional[Tuple[float, float]] = (0.1, 10.0),
+    min_battery_buffer_percent: float = BATTERY_BUFFER_PERCENT,
+    min_destination_reserve_percent: float = DESTINATION_RESERVE_PERCENT,
 ) -> Dict[str, Any]:
     """
     Races Classical Dynamic Programming against Quantum-Inspired QUBO in parallel threads.
@@ -43,10 +47,14 @@ def run_race(
     def worker_dp():
         nonlocal classical_result
         stops, charges, obj, exec_t, nodes = solve_classical_dp(
-            ev, stations, route, alpha, beta, average_speed_kmh=average_speed_kmh
+            ev, stations, route, alpha, beta, average_speed_kmh=average_speed_kmh,
+            min_battery_buffer_percent=min_battery_buffer_percent,
+            min_destination_reserve_percent=min_destination_reserve_percent,
         )
         is_feasible, violations, profile = validate_solution(
-            ev, stations, stops, charges, route, average_speed_kmh=average_speed_kmh
+            ev, stations, stops, charges, route, average_speed_kmh=average_speed_kmh,
+            min_battery_buffer_percent=min_battery_buffer_percent,
+            min_destination_reserve_percent=min_destination_reserve_percent,
         )
         obj_details = calculate_objective(
             ev, stops, charges, stations, route_dist, alpha, beta, average_speed_kmh=average_speed_kmh
@@ -67,10 +75,14 @@ def run_race(
     def worker_qubo():
         nonlocal quantum_result
         stops, charges, obj, exec_t, reads, rate = solve_quantum_qubo(
-            ev, stations, route, alpha, beta, average_speed_kmh=average_speed_kmh
+            ev, stations, route, alpha, beta, num_reads=num_reads, beta_range=beta_range, average_speed_kmh=average_speed_kmh,
+            min_battery_buffer_percent=min_battery_buffer_percent,
+            min_destination_reserve_percent=min_destination_reserve_percent,
         )
         is_feasible, violations, profile = validate_solution(
-            ev, stations, stops, charges, route, average_speed_kmh=average_speed_kmh
+            ev, stations, stops, charges, route, average_speed_kmh=average_speed_kmh,
+            min_battery_buffer_percent=min_battery_buffer_percent,
+            min_destination_reserve_percent=min_destination_reserve_percent,
         )
         obj_details = calculate_objective(
             ev, stops, charges, stations, route_dist, alpha, beta, average_speed_kmh=average_speed_kmh

@@ -20,6 +20,8 @@ def validate_solution(
     route: Optional[List[Tuple[float, float, float]]] = None,
     start_time_hour: float = 8.0,
     average_speed_kmh: float = 75.0,
+    min_battery_buffer_percent: float = BATTERY_BUFFER_PERCENT,
+    min_destination_reserve_percent: float = DESTINATION_RESERVE_PERCENT,
 ) -> Tuple[bool, List[str], List[Dict[str, Any]]]:
     """
     Validates an EV charging route solution against all 6 operational & physical constraints:
@@ -84,10 +86,10 @@ def validate_solution(
         soc_drop = (energy_used_kwh / sim_ev.battery_capacity_kwh) * 100.0
         arrival_soc = current_soc - soc_drop
 
-        # Constraint 1: Battery never below 10%
-        if arrival_soc < BATTERY_BUFFER_PERCENT - 1e-3:
+        # Constraint 1: Battery never below safe buffer
+        if arrival_soc < min_battery_buffer_percent - 1e-3:
             violations.append(
-                f"Constraint 1 Broken: SoC dropped to {arrival_soc:.1f}% (< {BATTERY_BUFFER_PERCENT}% buffer) "
+                f"Constraint 1 Broken: SoC dropped to {arrival_soc:.1f}% (< {min_battery_buffer_percent}% buffer) "
                 f"en route to {st.name} at {st.distance_from_start_km:.1f} km."
             )
 
@@ -167,15 +169,15 @@ def validate_solution(
         soc_drop = (energy_used_kwh / sim_ev.battery_capacity_kwh) * 100.0
         final_soc = current_soc - soc_drop
 
-        if final_soc < BATTERY_BUFFER_PERCENT - 1e-3:
+        if final_soc < min_battery_buffer_percent - 1e-3:
             violations.append(
-                f"Constraint 1 Broken: Battery dropped to {final_soc:.1f}% en route to Coimbatore."
+                f"Constraint 1 Broken: Battery dropped to {final_soc:.1f}% en route to destination."
             )
 
-        # Constraint 3: Destination reached with 15% remaining
-        if final_soc < DESTINATION_RESERVE_PERCENT - 1e-3:
+        # Constraint 3: Destination reached with required reserve
+        if final_soc < min_destination_reserve_percent - 1e-3:
             violations.append(
-                f"Constraint 3 Broken: Arrived at Coimbatore with {final_soc:.1f}% SoC (required reserve is {DESTINATION_RESERVE_PERCENT}%)."
+                f"Constraint 3 Broken: Arrived at destination with {final_soc:.1f}% SoC (required reserve is {min_destination_reserve_percent}%)."
             )
 
         current_soc = max(0.0, final_soc)

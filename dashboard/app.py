@@ -55,7 +55,14 @@ from core.station_model import Station
 from data.route_engine import get_route, get_route_waypoints, get_route_distance
 from data.station_finder import get_stations_along_route
 from data.telemetry_sim import simulate_telemetry, update_single_station, tick_live_telemetry
+import importlib
+import experiments.race_runner
+importlib.reload(experiments.race_runner)
 from experiments.race_runner import run_race, run_experiments
+
+import core.quantum_specialist
+importlib.reload(core.quantum_specialist)
+from core.quantum_specialist import get_quantum_specialist_solution, format_specialist_markdown_report
 
 
 # ==============================================================================
@@ -178,6 +185,36 @@ if "map_zoom" not in st.session_state:
 if "map_center" not in st.session_state:
     st.session_state["map_center"] = None
 
+if "ev_preset_name" not in st.session_state:
+    st.session_state["ev_preset_name"] = "Tata Nexon EV Max (40.5 kWh, 70 kW DC)"
+
+if "battery_capacity" not in st.session_state:
+    st.session_state["battery_capacity"] = 40.5
+
+if "current_soc" not in st.session_state:
+    st.session_state["current_soc"] = 90.0
+
+if "consumption_rate" not in st.session_state:
+    st.session_state["consumption_rate"] = 16.5
+
+if "max_charge_power" not in st.session_state:
+    st.session_state["max_charge_power"] = 70.0
+
+if "connector_type" not in st.session_state:
+    st.session_state["connector_type"] = "CCS2 (DC Fast)"
+
+if "alpha_weight" not in st.session_state:
+    st.session_state["alpha_weight"] = 0.65
+
+if "qubo_num_reads" not in st.session_state:
+    st.session_state["qubo_num_reads"] = 100
+
+if "qubo_beta_min" not in st.session_state:
+    st.session_state["qubo_beta_min"] = 0.1
+
+if "qubo_beta_max" not in st.session_state:
+    st.session_state["qubo_beta_max"] = 10.0
+
 
 # ==============================================================================
 # HEADER SECTION
@@ -194,6 +231,40 @@ st.markdown(
 # ==============================================================================
 # SECTION 1: SIDEBAR INPUT PANEL
 # ==============================================================================
+
+st.sidebar.markdown(
+    """
+    <div style="background: linear-gradient(135deg, rgba(14, 165, 233, 0.2), rgba(168, 85, 247, 0.2)); border: 1px solid #38bdf8; border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+        <div style="color: #38bdf8; font-weight: 700; font-size: 0.95rem; margin-bottom: 4px;">🔮 Quantum Specialist Mission</div>
+        <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 8px;">Run QUBO annealing for Tata Nexon EV Max on Coimbatore ➔ Chennai corridor.</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+btn_specialist_preset = st.sidebar.button(
+    "🚀 Load Quantum Specialist Mission",
+    help="Configures Coimbatore ➔ Chennai, Tata Nexon EV Max (40.5kWh, 90% SoC), α=0.65, β=0.35, and 100 QUBO annealing reads.",
+    use_container_width=True,
+    type="primary"
+)
+
+if btn_specialist_preset:
+    st.session_state["origin"] = "Coimbatore"
+    st.session_state["dest"] = "Chennai"
+    st.session_state["ev_preset_name"] = "Tata Nexon EV Max (40.5 kWh, 70 kW DC)"
+    st.session_state["battery_capacity"] = 40.5
+    st.session_state["current_soc"] = 90.0
+    st.session_state["consumption_rate"] = 16.5
+    st.session_state["max_charge_power"] = 70.0
+    st.session_state["connector_type"] = "CCS2 (DC Fast)"
+    st.session_state["alpha_weight"] = 0.65
+    st.session_state["qubo_num_reads"] = 100
+    st.session_state["qubo_beta_min"] = 0.1
+    st.session_state["qubo_beta_max"] = 10.0
+    st.session_state["target_dest_reserve"] = 20.0
+    st.session_state["min_safe_buffer"] = 10.0
+    st.session_state["force_recalc"] = True
+    st.rerun()
 
 st.sidebar.markdown("### Vehicle & Telemetry Configuration")
 
@@ -245,25 +316,109 @@ with st.sidebar.expander("Live Telemetry Auto-Stream (25s)", expanded=True):
         st.caption("⏸️ **Stream Paused**")
 
 with st.sidebar.expander("EV Battery Specifications", expanded=True):
-    battery_cap = st.slider("Battery Capacity (kWh)", min_value=40.0, max_value=100.0, value=DEFAULT_BATTERY_CAPACITY_KWH, step=5.0)
-    current_soc = st.slider("Current State of Charge (%)", min_value=10.0, max_value=90.0, value=DEFAULT_CURRENT_SOC_PERCENT, step=5.0)
-    consumption_rate = st.slider("Consumption Rate (kWh/100km)", min_value=4.0, max_value=25.0, value=DEFAULT_CONSUMPTION_KWH_PER_100KM, step=0.5)
-    max_charge_power = st.select_slider("Max Charging Power (kW)", options=[30.0, 50.0, 60.0, 120.0, 150.0, 240.0], value=DEFAULT_MAX_CHARGING_POWER_KW)
-    connector_type = st.selectbox(
-        "Connector Type",
-        options=["CCS2 (DC Fast)", "Type2 (AC)", "CHAdeMO (DC Fast)"],
-        index=0,
-        help="Choose connector matching your vehicle inlet (AC or DC Fast)."
-    )
+    VEHICLE_PRESETS = {
+        "Tata Nexon EV Max (40.5 kWh, 70 kW DC)": {
+            "capacity": 40.5,
+            "soc": 90.0,
+            "consumption": 16.5,
+            "power": 70.0,
+            "connector": "CCS2 (DC Fast)",
+        },
+        "MG ZS EV (50.3 kWh, 80 kW DC)": {
+            "capacity": 50.3,
+            "soc": 90.0,
+            "consumption": 17.0,
+            "power": 120.0,
+            "connector": "CCS2 (DC Fast)",
+        },
+        "Hyundai Ioniq 5 (72.6 kWh, 240 kW DC)": {
+            "capacity": 72.6,
+            "soc": 90.0,
+            "consumption": 18.0,
+            "power": 240.0,
+            "connector": "CCS2 (DC Fast)",
+        },
+        "BYD Atto 3 (60.5 kWh, 80 kW DC)": {
+            "capacity": 60.5,
+            "soc": 90.0,
+            "consumption": 16.0,
+            "power": 120.0,
+            "connector": "CCS2 (DC Fast)",
+        },
+        "Custom EV Profile": None,
+    }
+
+    preset_keys = list(VEHICLE_PRESETS.keys())
+    current_preset = st.session_state.get("ev_preset_name", "Tata Nexon EV Max (40.5 kWh, 70 kW DC)")
+    preset_idx = preset_keys.index(current_preset) if current_preset in preset_keys else 0
+
+    selected_preset = st.selectbox("Vehicle Model Preset", options=preset_keys, index=preset_idx)
+    if selected_preset != st.session_state.get("ev_preset_name"):
+        st.session_state["ev_preset_name"] = selected_preset
+        preset_cfg = VEHICLE_PRESETS.get(selected_preset)
+        if preset_cfg:
+            st.session_state["battery_capacity"] = preset_cfg["capacity"]
+            st.session_state["current_soc"] = preset_cfg["soc"]
+            st.session_state["consumption_rate"] = preset_cfg["consumption"]
+            st.session_state["max_charge_power"] = preset_cfg["power"]
+            st.session_state["connector_type"] = preset_cfg["connector"]
+        st.rerun()
+
+    battery_cap = st.slider("Battery Capacity (kWh)", min_value=30.0, max_value=120.0, value=float(st.session_state.get("battery_capacity", 40.5)), step=0.5)
+    current_soc = st.slider("Current State of Charge (%)", min_value=10.0, max_value=100.0, value=float(st.session_state.get("current_soc", 90.0)), step=5.0)
+    consumption_rate = st.slider("Consumption Rate (kWh/100km)", min_value=4.0, max_value=25.0, value=float(st.session_state.get("consumption_rate", 16.5)), step=0.5)
+    power_options = [30.0, 50.0, 60.0, 70.0, 120.0, 150.0, 240.0]
+    p_val = float(st.session_state.get("max_charge_power", 70.0))
+    p_idx = power_options.index(p_val) if p_val in power_options else 3
+    max_charge_power = st.select_slider("Max Charging Power (kW)", options=power_options, value=power_options[p_idx])
+
+    conn_opts = ["CCS2 (DC Fast)", "Type2 (AC)", "CHAdeMO (DC Fast)"]
+    c_val = st.session_state.get("connector_type", "CCS2 (DC Fast)")
+    c_idx = conn_opts.index(c_val) if c_val in conn_opts else 0
+    connector_type = st.selectbox("Connector Type", options=conn_opts, index=c_idx, help="Choose connector matching your vehicle inlet.")
 
 with st.sidebar.expander("Multi-Objective Optimization Weights", expanded=True):
-    alpha_weight = st.slider("Alpha (Weight for Journey Time)", min_value=0.0, max_value=1.0, value=DEFAULT_ALPHA, step=0.05)
+    alpha_weight = st.slider(
+        "Alpha (Weight for Journey Time)",
+        min_value=0.0,
+        max_value=1.0,
+        value=float(st.session_state.get("alpha_weight", 0.65)),
+        step=0.05,
+        help="Higher alpha prioritizes total trip duration; lower alpha prioritizes cheaper charging rates."
+    )
     beta_weight = round(1.0 - alpha_weight, 2)
     st.write(f"**Beta (Weight for Charging Cost):** `{beta_weight}`")
 
+with st.sidebar.expander("Quantum QUBO Hyperparameters", expanded=False):
+    qubo_reads = st.slider("Annealing Reads (num_reads)", min_value=50, max_value=500, value=int(st.session_state.get("qubo_num_reads", 100)), step=50)
+    col_q1, col_q2 = st.columns(2)
+    with col_q1:
+        qubo_beta_min = st.number_input("Beta Min", min_value=0.01, max_value=1.0, value=float(st.session_state.get("qubo_beta_min", 0.1)), step=0.05)
+    with col_q2:
+        qubo_beta_max = st.number_input("Beta Max", min_value=1.0, max_value=30.0, value=float(st.session_state.get("qubo_beta_max", 10.0)), step=1.0)
+    st.caption("Quantum Annealing Beta schedule controls quantum fluctuations during simulated sampling.")
+
+with st.sidebar.expander("Battery Safety & Destination Reserve", expanded=False):
+    target_dest_reserve = st.slider(
+        "Target Destination Reserve (%)",
+        min_value=10.0,
+        max_value=35.0,
+        value=float(st.session_state.get("target_dest_reserve", 20.0)),
+        step=1.0,
+        help="Minimum battery percentage required upon reaching the final destination."
+    )
+    min_safe_buffer = st.slider(
+        "Minimum Safe Buffer (%)",
+        min_value=5.0,
+        max_value=20.0,
+        value=float(st.session_state.get("min_safe_buffer", 10.0)),
+        step=1.0,
+        help="Do not allow SoC to drop below this buffer during any intermediate driving segment."
+    )
+
 # Construct EV instance
 user_ev = EV(
-    id="User-EV",
+    id=st.session_state.get("ev_preset_name", "User-EV"),
     battery_capacity_kwh=battery_cap,
     current_soc_percent=current_soc,
     consumption_kwh_per_100km=consumption_rate,
@@ -283,7 +438,15 @@ if btn_resimulate or btn_refresh_now:
     )
     st.session_state["last_telemetry_tick"] = time.time()
     st.session_state["race_results"] = run_race(
-        user_ev, st.session_state["stations"], alpha=alpha_weight, beta=beta_weight
+        user_ev,
+        st.session_state["stations"],
+        route=st.session_state["route_points"],
+        alpha=alpha_weight,
+        beta=beta_weight,
+        num_reads=qubo_reads,
+        beta_range=(qubo_beta_min, qubo_beta_max),
+        min_battery_buffer_percent=min_safe_buffer,
+        min_destination_reserve_percent=target_dest_reserve,
     )
     st.sidebar.success("Updated telemetry!")
     st.rerun()
@@ -292,7 +455,15 @@ if btn_resimulate or btn_refresh_now:
 if btn_run_race or st.session_state.get("race_results") is None:
     with st.spinner("Racing Classical DP vs Quantum QUBO solvers in parallel..."):
         st.session_state["race_results"] = run_race(
-            user_ev, st.session_state["stations"], alpha=alpha_weight, beta=beta_weight
+            user_ev,
+            st.session_state["stations"],
+            route=st.session_state["route_points"],
+            alpha=alpha_weight,
+            beta=beta_weight,
+            num_reads=qubo_reads,
+            beta_range=(qubo_beta_min, qubo_beta_max),
+            min_battery_buffer_percent=min_safe_buffer,
+            min_destination_reserve_percent=target_dest_reserve,
         )
 
 
@@ -313,7 +484,15 @@ def render_live_route_map():
         )
         st.session_state["last_telemetry_tick"] = now
         st.session_state["race_results"] = run_race(
-            user_ev, st.session_state["stations"], alpha=alpha_weight, beta=beta_weight
+            user_ev,
+            st.session_state["stations"],
+            route=st.session_state["route_points"],
+            alpha=alpha_weight,
+            beta=beta_weight,
+            num_reads=qubo_reads,
+            beta_range=(qubo_beta_min, qubo_beta_max),
+            min_battery_buffer_percent=min_safe_buffer,
+            min_destination_reserve_percent=target_dest_reserve,
         )
 
     # Active race results for map markers
@@ -623,6 +802,201 @@ else:
 st.markdown('</div>', unsafe_allow_html=True)
 
 
+# ==============================================================================
+# SECTION 3.6: QUANTUM OPTIMIZATION SPECIALIST ROUTE REPORT
+# ==============================================================================
+
+st.markdown("---")
+st.markdown("### 🔮 Quantum Optimization Specialist Route Report")
+st.markdown(
+    f"""
+    <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid #a855f7; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px;">
+        <div style="color: #c084fc; font-weight: 700; font-size: 1.15rem; margin-bottom: 6px;">
+            ⚡ Quantum-Inspired QUBO Optimization: {st.session_state["origin"]} ➔ {st.session_state["dest"]}
+        </div>
+        <div style="color: #cbd5e1; font-size: 0.92rem; line-height: 1.5;">
+            <b>Vehicle:</b> {user_ev.id} ({user_ev.battery_capacity_kwh:.1f} kWh, {user_ev.max_charging_power_kw:.0f} kW DC Fast) &nbsp;|&nbsp;
+            <b>Initial SoC:</b> {user_ev.current_soc_percent:.0f}% &nbsp;|&nbsp;
+            <b>Target Destination Reserve:</b> ≥20% &nbsp;|&nbsp;
+            <b>Minimum Safe Buffer:</b> 10%<br>
+            <b>Strategy Weights:</b> Time Minimization (α) = <code>{alpha_weight}</code>, Cost Minimization (β) = <code>{beta_weight}</code> &nbsp;|&nbsp;
+            <b>Annealing Sampler:</b> <code>neal.SimulatedAnnealingSampler</code> (<code>num_reads={qubo_reads}</code>, <code>β ∈ [{qubo_beta_min}, {qubo_beta_max}]</code>)
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+q_res = qubo_res
+d_res = dp_res
+q_obj = q_res["obj_details"]
+d_obj = d_res["obj_details"]
+st_lookup = {s.id: s for s in st.session_state["stations"]}
+
+# 1. Stop Sequence Breakdown
+q_active_stops = [sid for sid in q_res["stops"] if q_res["charges"].get(sid, 0.0) > 0.01]
+
+spec_stops_data = []
+sim_ev_spec = user_ev.clone()
+curr_km_spec = 0.0
+
+for s_idx, sid in enumerate(q_active_stops):
+    if sid not in st_lookup:
+        continue
+    st_obj = st_lookup[sid]
+    d_leg = st_obj.distance_from_start_km - curr_km_spec
+    sim_ev_spec.consume_distance(d_leg)
+    arr_soc = sim_ev_spec.current_soc_percent
+
+    c_kwh = q_res["charges"].get(sid, 0.0)
+    sim_ev_spec.charge(c_kwh)
+    dep_soc = sim_ev_spec.current_soc_percent
+
+    p_time = st_obj.charging_time_minutes(c_kwh, user_ev)
+    w_time = st_obj.wait_time_minutes
+    c_cost = st_obj.charging_cost(c_kwh)
+
+    spec_stops_data.append({
+        "Stop #": f"Stop {s_idx + 1}",
+        "Charging Station": st_obj.name,
+        "Distance": f"{st_obj.distance_from_start_km:.1f} km",
+        "AC Connectors": ", ".join(st_obj.ac_connectors) if st_obj.ac_connectors else "None",
+        "DC Fast Connectors": ", ".join(st_obj.dc_connectors) if st_obj.dc_connectors else "None",
+        "Power": f"{st_obj.max_power_kw:.0f} kW",
+        "Arrival SoC": f"{arr_soc:.1f}%",
+        "Charged": f"+{c_kwh:.1f} kWh",
+        "Departure SoC": f"{dep_soc:.1f}%",
+        "Plug Time": f"{p_time:.0f} mins",
+        "Queue Delay": f"{w_time:.0f} mins",
+        "Cost (₹)": f"₹{c_cost:.2f}",
+    })
+    curr_km_spec = st_obj.distance_from_start_km
+
+# Final leg arrival
+final_dist = route_dist - curr_km_spec
+if final_dist > 0:
+    sim_ev_spec.consume_distance(final_dist)
+dest_arrival_soc = sim_ev_spec.current_soc_percent
+
+st.markdown("#### 1. Exact Sequence of Recommended Charging Stops (Quantum QUBO)")
+if spec_stops_data:
+    st.dataframe(pd.DataFrame(spec_stops_data), use_container_width=True, hide_index=True)
+else:
+    st.info("No intermediate charging stops required for this route.")
+
+# 2. Total Journey Breakdown Cards
+st.markdown("#### 2. Total Journey Breakdown")
+tot_kwh_road = route_dist * (user_ev.consumption_kwh_per_100km / 100.0)
+tot_kwh_charged = sum(q_res["charges"].values())
+
+col_jb1, col_jb2, col_jb3, col_jb4, col_jb5, col_jb6 = st.columns(6)
+with col_jb1:
+    st.metric("Highway Drive Time", f"{q_obj['travel_time']:.0f} min", f"{q_obj['travel_time']/60.0:.1f} hrs")
+with col_jb2:
+    st.metric("Active Plug Time", f"{q_obj['charging_time']:.0f} min", f"{len(q_active_stops)} stop(s)")
+with col_jb3:
+    st.metric("Station Queue Delay", f"{q_obj['waiting_time']:.0f} min", "Live telemetry")
+with col_jb4:
+    st.metric("Total Journey Time", f"{q_obj['total_time_minutes']:.0f} min", f"{q_obj['total_time_minutes']/60.0:.2f} hrs")
+with col_jb5:
+    st.metric("Total Charging Cost", f"₹{q_obj['total_cost_inr']:.2f}", f"₹{q_obj['total_cost_inr']/max(1.0, route_dist):.2f}/km")
+with col_jb6:
+    st.metric("Road Energy Used", f"{tot_kwh_road:.1f} kWh", f"Arrival: {dest_arrival_soc:.1f}% SoC")
+
+# 3. Head-to-Head Benchmark Table
+st.markdown("#### 3. Quantum QUBO vs. Classical Dynamic Programming (DP) Benchmark")
+bench_df = pd.DataFrame([
+    {
+        "Evaluation Dimension": "Algorithm Execution Latency",
+        "Quantum QUBO Solver": f"{q_res['execution_time_sec']:.4f} s",
+        "Classical Dynamic Programming": f"{d_res['execution_time_sec']:.4f} s",
+        "Performance Winner": winners['runtime_speed'],
+    },
+    {
+        "Evaluation Dimension": "Total Route Time (Drive + Charge + Queue)",
+        "Quantum QUBO Solver": f"{q_obj['total_time_minutes']:.1f} mins ({q_obj['total_time_minutes']/60.0:.2f} hrs)",
+        "Classical Dynamic Programming": f"{d_obj['total_time_minutes']:.1f} mins ({d_obj['total_time_minutes']/60.0:.2f} hrs)",
+        "Performance Winner": winners['time'],
+    },
+    {
+        "Evaluation Dimension": "Total Charging Expenditure (₹)",
+        "Quantum QUBO Solver": f"₹{q_obj['total_cost_inr']:.2f}",
+        "Classical Dynamic Programming": f"₹{d_obj['total_cost_inr']:.2f}",
+        "Performance Winner": winners['cost'],
+    },
+    {
+        "Evaluation Dimension": "Combined Objective Utility (α·T + β·C)",
+        "Quantum QUBO Solver": f"{q_res['objective_score']:.4f}",
+        "Classical Dynamic Programming": f"{d_res['objective_score']:.4f}",
+        "Performance Winner": winners['overall'],
+    },
+    {
+        "Evaluation Dimension": "Constraint Feasibility & Status",
+        "Quantum QUBO Solver": f"{'✓ Strictly Feasible' if q_res['is_feasible'] else 'Infeasible'} ({q_res.get('feasibility_rate_percent', 0.0):.1f}% anneal rate)",
+        "Classical Dynamic Programming": f"{'✓ Strictly Feasible' if d_res['is_feasible'] else 'Infeasible'} (Bellman Exact)",
+        "Performance Winner": "Dual Feasible" if (q_res['is_feasible'] and d_res['is_feasible']) else "Classical DP",
+    },
+    {
+        "Evaluation Dimension": "Intermediate Stops Selected",
+        "Quantum QUBO Solver": f"{len(q_active_stops)} stops",
+        "Classical Dynamic Programming": f"{len(d_res['stops'])} stops",
+        "Performance Winner": "Tie" if len(q_active_stops) == len(d_res['stops']) else "Optimized",
+    },
+])
+st.dataframe(bench_df, use_container_width=True, hide_index=True)
+
+# Specialist Report Downloader
+specialist_md_lines = [
+    "# ⚡ Quantum Optimization Specialist Route Report",
+    f"**Corridor:** {st.session_state['origin']} ➔ {st.session_state['dest']} ({route_dist:.1f} km)",
+    f"**Vehicle:** {user_ev.id} ({user_ev.battery_capacity_kwh:.1f} kWh, {user_ev.max_charging_power_kw:.0f} kW DC Fast)",
+    f"**Initial Battery:** {user_ev.current_soc_percent:.0f}% | **Destination Arrival SoC:** {dest_arrival_soc:.1f}%",
+    f"**Weights:** Alpha (Time) = {alpha_weight}, Beta (Cost) = {beta_weight}",
+    f"**Quantum Sampler:** neal.SimulatedAnnealingSampler (num_reads={qubo_reads}, beta_range=({qubo_beta_min}, {qubo_beta_max}))",
+    "",
+    "## 1. Sequence of Recommended Charging Stops (Quantum QUBO)",
+    "| Stop # | Charging Station | Distance | AC Connectors | DC Fast Connectors | Power | Arrival SoC | Charged | Departure SoC | Plug Time | Queue | Cost |",
+    "|:---:|:---|:---:|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|",
+]
+for s in spec_stops_data:
+    specialist_md_lines.append(
+        f"| {s['Stop #']} | {s['Charging Station']} | {s['Distance']} | {s['AC Connectors']} | {s['DC Fast Connectors']} | "
+        f"{s['Power']} | {s['Arrival SoC']} | {s['Charged']} | {s['Departure SoC']} | {s['Plug Time']} | {s['Queue Delay']} | {s['Cost (₹)']} |"
+    )
+
+specialist_md_lines.extend([
+    "",
+    "## 2. Total Journey Breakdown",
+    f"- Highway Drive Time: {q_obj['travel_time']:.1f} mins ({q_obj['travel_time']/60.0:.2f} hrs)",
+    f"- Active Plug Charging Time: {q_obj['charging_time']:.1f} mins",
+    f"- Station Queue Delay: {q_obj['waiting_time']:.1f} mins",
+    f"- Total Journey Duration: {q_obj['total_time_minutes']:.1f} mins ({q_obj['total_time_minutes']/60.0:.2f} hrs)",
+    f"- Total Charging Cost: INR ₹{q_obj['total_cost_inr']:.2f}",
+    f"- Road Energy Consumed: {tot_kwh_road:.1f} kWh",
+    f"- Energy Replenished: {tot_kwh_charged:.1f} kWh",
+    f"- Destination Reserve: {dest_arrival_soc:.1f}% (Target: ≥20%)",
+    "",
+    "## 3. Quantum QUBO vs. Classical DP Benchmark",
+    f"- Execution Latency: Quantum {q_res['execution_time_sec']:.4f}s vs Classical DP {d_res['execution_time_sec']:.4f}s ({winners['runtime_speed']})",
+    f"- Total Journey Time: Quantum {q_obj['total_time_minutes']:.1f}m vs Classical DP {d_obj['total_time_minutes']:.1f}m ({winners['time']})",
+    f"- Total Charging Cost: Quantum ₹{q_obj['total_cost_inr']:.2f} vs Classical DP ₹{d_obj['total_cost_inr']:.2f} ({winners['cost']})",
+    f"- Combined Objective Score: Quantum {q_res['objective_score']:.4f} vs Classical DP {d_res['objective_score']:.4f} ({winners['overall']})",
+    f"- Feasibility: Quantum {'✓ Feasible' if q_res['is_feasible'] else 'Infeasible'} ({q_res.get('feasibility_rate_percent', 0.0):.1f}%) vs Classical DP {'✓ Feasible' if d_res['is_feasible'] else 'Infeasible'}",
+])
+specialist_md_content = "\n".join(specialist_md_lines)
+
+col_dl1, col_dl2 = st.columns([3, 1])
+with col_dl1:
+    with st.expander("📋 View Raw Quantum Specialist Prompt & Response Markdown", expanded=False):
+        st.code(specialist_md_content, language="markdown")
+with col_dl2:
+    st.download_button(
+        label="⬇️ Download Report (.md)",
+        data=specialist_md_content,
+        file_name=f"Quantum_Specialist_Report_{time.strftime('%Y%m%d_%H%M%S')}.md",
+        mime="text/markdown",
+        use_container_width=True,
+    )
 
 
 # ==============================================================================
@@ -822,7 +1196,15 @@ if btn_trigger_event and selected_offline_str != "None":
 
     # Re-run race
     st.session_state["race_results"] = run_race(
-        user_ev, st.session_state["stations"], alpha=alpha_weight, beta=beta_weight
+        user_ev,
+        st.session_state["stations"],
+        route=st.session_state["route_points"],
+        alpha=alpha_weight,
+        beta=beta_weight,
+        num_reads=qubo_reads,
+        beta_range=(qubo_beta_min, qubo_beta_max),
+        min_battery_buffer_percent=min_safe_buffer,
+        min_destination_reserve_percent=target_dest_reserve,
     )
     st.success(f"Station {selected_offline_str} marked OFFLINE! Re-optimization complete!")
     st.rerun()

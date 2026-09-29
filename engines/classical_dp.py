@@ -27,6 +27,8 @@ def solve(
     beta: float = DEFAULT_BETA,
     soc_levels: int = DP_SOC_DISCRETIZATION_LEVELS,
     average_speed_kmh: float = 75.0,
+    min_battery_buffer_percent: float = BATTERY_BUFFER_PERCENT,
+    min_destination_reserve_percent: float = DESTINATION_RESERVE_PERCENT,
 ) -> Tuple[List[str], Dict[str, float], float, float, int]:
     """
     Solves the EV route charging stop selection and energy allocation problem using
@@ -46,9 +48,9 @@ def solve(
     # Sort stations strictly by distance along route corridor
     sorted_stations = sorted(stations, key=lambda s: s.distance_from_start_km)
 
-    # Discretize SoC levels between BATTERY_BUFFER_PERCENT (10%) and 100%
+    # Discretize SoC levels between min_battery_buffer_percent and 100%
     soc_grid: List[float] = [
-        BATTERY_BUFFER_PERCENT + i * ((100.0 - BATTERY_BUFFER_PERCENT) / (soc_levels - 1))
+        min_battery_buffer_percent + i * ((100.0 - min_battery_buffer_percent) / (soc_levels - 1))
         for i in range(soc_levels)
     ]
 
@@ -73,7 +75,7 @@ def solve(
     dp: List[Dict[int, Tuple[float, int, int, float]]] = [{} for _ in range(num_stages)]
 
     # Initial state at Stage 0 (Origin)
-    start_soc = max(BATTERY_BUFFER_PERCENT, min(100.0, ev.current_soc_percent))
+    start_soc = max(min_battery_buffer_percent, min(100.0, ev.current_soc_percent))
     start_soc_idx = soc_to_index(start_soc)
     dp[0][start_soc_idx] = (0.0, -1, -1, 0.0)
 
@@ -101,14 +103,14 @@ def solve(
                 soc_drop = (energy_needed / ev.battery_capacity_kwh) * 100.0
                 arrival_soc = curr_soc - soc_drop
 
-                # Validate buffer requirement (>= 10%)
-                if arrival_soc < BATTERY_BUFFER_PERCENT - 1e-3:
+                # Validate buffer requirement (>= min buffer)
+                if arrival_soc < min_battery_buffer_percent - 1e-3:
                     # Battery drops below buffer -> cannot reach next_stage without charging first
                     break  # Further stages will be even farther
 
                 # If next_stage is Destination
                 if next_stage == num_stages - 1:
-                    if arrival_soc >= DESTINATION_RESERVE_PERCENT - 1e-3:
+                    if arrival_soc >= min_destination_reserve_percent - 1e-3:
                         # Reached destination safely
                         travel_time_mins = (dist / max(10.0, average_speed_kmh)) * 60.0
                         norm_time = travel_time_mins / 450.0
@@ -182,6 +184,38 @@ def solve(
         curr_soc_i = prev_soc_i
 
     best_stops = list(reversed(best_stops_reversed))
+
+    # Continuous charge refinement to prevent discrete grid rounding deficits
+    refined_charges: Dict[str, float] = {}
+    sim_ev = ev.clone()
+    curr_km = 0.0
+    station_map = {s.id: s for s in sorted_stations}
+
+    for idx, sid in enumerate(best_stops):
+        if sid not in station_map:
+            continue
+        st = station_map[sid]
+        dist_leg = st.distance_from_start_km - curr_km
+        sim_ev.consume_distance(dist_leg)
+        dist_rem = route_dist - st.distance_from_start_km
+
+        if idx < len(best_stops) - 1:
+            next_st = station_map[best_stops[idx + 1]]
+            dist_to_next = next_st.distance_from_start_km - st.distance_from_start_km
+            target_kwh = sim_ev.energy_needed(dist_to_next) + ((min_battery_buffer_percent + 2.0) / 100.0) * sim_ev.battery_capacity_kwh
+        else:
+            target_kwh = sim_ev.energy_needed(dist_rem) + ((min_destination_reserve_percent + 1.0) / 100.0) * sim_ev.battery_capacity_kwh
+
+        curr_kwh = sim_ev.get_current_kwh()
+        shortfall = max(0.0, target_kwh - curr_kwh)
+        dp_suggested = charge_amounts_map.get(sid, 0.0)
+        final_charge = max(dp_suggested, shortfall)
+        actual_charged = sim_ev.charge(final_charge)
+        if actual_charged > 0:
+            refined_charges[sid] = round(actual_charged, 2)
+        curr_km = st.distance_from_start_km
+
+    charge_amounts_map = refined_charges
 
     # Calculate final exact multi-objective score using core objective engine
     obj_res = calculate_objective(ev, best_stops, charge_amounts_map, sorted_stations, route_dist, alpha, beta, average_speed_kmh)
