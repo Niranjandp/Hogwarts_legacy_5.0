@@ -13,7 +13,6 @@ from core.objective import calculate_objective
 from config import (
     BATTERY_BUFFER_PERCENT,
     DESTINATION_RESERVE_PERCENT,
-    TOTAL_ROUTE_DISTANCE_KM,
     DP_SOC_DISCRETIZATION_LEVELS,
     DEFAULT_ALPHA,
     DEFAULT_BETA,
@@ -42,6 +41,7 @@ def solve(
     """
     start_time = time.perf_counter()
     nodes_explored = 0
+    route_dist = route[-1][2] if route else 552.0
 
     # Sort stations strictly by distance along route corridor
     sorted_stations = sorted(stations, key=lambda s: s.distance_from_start_km)
@@ -78,7 +78,7 @@ def solve(
     dp[0][start_soc_idx] = (0.0, -1, -1, 0.0)
 
     # All stage locations: [0.0, st1_km, st2_km, ..., 552.0]
-    stage_kms = [0.0] + [s.distance_from_start_km for s in sorted_stations] + [TOTAL_ROUTE_DISTANCE_KM]
+    stage_kms = [0.0] + [s.distance_from_start_km for s in sorted_stations] + [route_dist]
 
     for stage in range(num_stages - 1):
         current_km = stage_kms[stage]
@@ -184,7 +184,7 @@ def solve(
     best_stops = list(reversed(best_stops_reversed))
 
     # Calculate final exact multi-objective score using core objective engine
-    obj_res = calculate_objective(ev, best_stops, charge_amounts_map, sorted_stations, alpha, beta, average_speed_kmh)
+    obj_res = calculate_objective(ev, best_stops, charge_amounts_map, sorted_stations, route_dist, alpha, beta, average_speed_kmh)
     obj_value = obj_res["combined_score"]
 
     exec_time = time.perf_counter() - start_time

@@ -9,7 +9,6 @@ from core.station_model import Station
 from config import (
     BATTERY_BUFFER_PERCENT,
     DESTINATION_RESERVE_PERCENT,
-    TOTAL_ROUTE_DISTANCE_KM,
 )
 
 
@@ -38,6 +37,8 @@ def validate_solution(
     """
     violations: List[str] = []
     battery_profile: List[Dict[str, Any]] = []
+
+    route_dist = route[-1][2] if route else 552.0
 
     # Map station ID -> Station object
     station_map: Dict[str, Station] = {st.id: st for st in stations}
@@ -157,7 +158,7 @@ def validate_solution(
         })
 
     # Final Leg to Destination (Coimbatore)
-    dist_final = TOTAL_ROUTE_DISTANCE_KM - current_km
+    dist_final = route_dist - current_km
     if dist_final > 0:
         travel_time_hours = dist_final / max(10.0, average_speed_kmh)
         current_time_hour += travel_time_hours
@@ -180,7 +181,7 @@ def validate_solution(
         current_soc = max(0.0, final_soc)
 
     battery_profile.append({
-        "km": round(TOTAL_ROUTE_DISTANCE_KM, 1),
+        "km": round(route_dist, 1),
         "soc": round(current_soc, 2),
         "location": "Coimbatore (Destination)",
         "action": "Arrival",

@@ -14,14 +14,27 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+# pyrefly: ignore [missing-import]
 import folium
+# pyrefly: ignore [missing-import]
 import streamlit as st
+import requests
 from streamlit_folium import st_folium
 
+def get_current_location():
+    try:
+        resp = requests.get("https://ipinfo.io/json", timeout=3)
+        if resp.status_code == 200:
+            data = resp.json()
+            city = data.get("city")
+            region = data.get("region")
+            if city:
+                return f"{city}, {region}" if region else city
+    except Exception:
+        pass
+    return ""
+
 from config import (
-    ORIGIN_NAME,
-    DESTINATION_NAME,
-    TOTAL_ROUTE_DISTANCE_KM,
     BATTERY_BUFFER_PERCENT,
     DESTINATION_RESERVE_PERCENT,
     DEFAULT_CONSUMPTION_KWH_PER_100KM,
@@ -123,13 +136,22 @@ st.markdown("""
 # ==============================================================================
 
 if "origin" not in st.session_state:
-    st.session_state["origin"] = ORIGIN_NAME
+    st.session_state["origin"] = "Chennai"
 
 if "dest" not in st.session_state:
-    st.session_state["dest"] = DESTINATION_NAME
+    st.session_state["dest"] = "Coimbatore"
+
+# Track which origin/dest were actually used to build the cached route
+if "route_origin_used" not in st.session_state:
+    st.session_state["route_origin_used"] = ""
+
+if "route_dest_used" not in st.session_state:
+    st.session_state["route_dest_used"] = ""
 
 if "route_points" not in st.session_state:
     st.session_state["route_points"] = get_route(api_key=GOOGLE_MAPS_API_KEY, origin=st.session_state["origin"], destination=st.session_state["dest"])
+    st.session_state["route_origin_used"] = st.session_state["origin"]
+    st.session_state["route_dest_used"] = st.session_state["dest"]
 
 if "stations" not in st.session_state:
     raw_stations = get_stations_along_route(st.session_state["route_points"])
@@ -167,13 +189,25 @@ with st.sidebar.expander("Route Definition & Mapping", expanded=True):
     current_dist = st.session_state["route_points"][-1][2] if st.session_state["route_points"] else 0.0
     st.text_input("Corridor Distance", value=f"{current_dist:.1f} km", disabled=True)
     map_tile_provider = st.selectbox("Map Style", options=["Google Maps", "CartoDB Dark", "OpenStreetMap"], index=0)
+    btn_recalc_route = st.button("🔄 Recalculate Route", type="secondary", use_container_width=True)
 
-if origin_input != st.session_state["origin"] or dest_input != st.session_state["dest"]:
-    st.session_state["origin"] = origin_input
-    st.session_state["dest"] = dest_input
-    with st.spinner("Calculating new route via Google Maps ML models..."):
-        new_route = get_route(api_key=GOOGLE_MAPS_API_KEY, origin=origin_input, destination=dest_input)
+# Detect stale cache: inputs changed, or user clicked Recalculate, or route was built for different city pair
+_route_stale = (
+    origin_input.strip().lower() != st.session_state["route_origin_used"].strip().lower()
+    or dest_input.strip().lower() != st.session_state["route_dest_used"].strip().lower()
+    or st.session_state.get("force_recalc", False)
+    or btn_recalc_route
+)
+
+if _route_stale:
+    st.session_state["origin"] = origin_input.strip()
+    st.session_state["dest"] = dest_input.strip()
+    st.session_state["force_recalc"] = False
+    with st.spinner(f"Fetching live route: {origin_input} → {dest_input} via OpenStreetMap routing..."):
+        new_route = get_route(api_key=GOOGLE_MAPS_API_KEY, origin=st.session_state["origin"], destination=st.session_state["dest"])
         st.session_state["route_points"] = new_route
+        st.session_state["route_origin_used"] = st.session_state["origin"]
+        st.session_state["route_dest_used"] = st.session_state["dest"]
         raw_st = get_stations_along_route(new_route)
         st.session_state["stations"] = simulate_telemetry(raw_st, current_hour=np.random.uniform(7.0, 22.0))
         st.session_state["race_results"] = None
@@ -202,8 +236,8 @@ user_ev = EV(
 )
 
 st.sidebar.markdown("---")
-btn_run_race = st.sidebar.button("Execute Optimization Solvers", type="primary", use_container_width=True)
-btn_resimulate = st.sidebar.button("Refresh Station Telemetry", use_container_width=True)
+btn_run_race = st.sidebar.button("Execute Optimization Solvers", type="primary", width="stretch")
+btn_resimulate = st.sidebar.button("Refresh Station Telemetry", width="stretch")
 
 if btn_resimulate:
     raw_st = get_stations_along_route(st.session_state["route_points"])
@@ -480,7 +514,7 @@ comp_df = pd.DataFrame([
     },
 ])
 
-st.dataframe(comp_df, use_container_width=True, hide_index=True)
+st.dataframe(comp_df, width="stretch", hide_index=True)
 
 
 # ==============================================================================
@@ -525,7 +559,7 @@ with chart_col1:
         template="plotly_dark",
         margin=dict(l=40, r=20, t=30, b=40),
     )
-    st.plotly_chart(fig_soc, use_container_width=True)
+    st.plotly_chart(fig_soc, width="stretch")
 
 with chart_col2:
     st.markdown("#### Journey Duration Distribution")
@@ -544,7 +578,7 @@ with chart_col2:
         template="plotly_dark",
         margin=dict(l=40, r=20, t=30, b=40),
     )
-    st.plotly_chart(fig_pie, use_container_width=True)
+    st.plotly_chart(fig_pie, width="stretch")
 
 st.markdown("---")
 
@@ -568,7 +602,7 @@ with chart_col3:
         xaxis_tickangle=-45,
         margin=dict(l=40, r=40, t=30, b=80),
     )
-    st.plotly_chart(fig_st, use_container_width=True)
+    st.plotly_chart(fig_st, width="stretch")
 
 with chart_col4:
     st.markdown("#### Scalability Benchmark: Problem Size vs. Execution Time")
@@ -594,7 +628,7 @@ with chart_col4:
         template="plotly_dark",
         margin=dict(l=40, r=20, t=30, b=40),
     )
-    st.plotly_chart(fig_exp, use_container_width=True)
+    st.plotly_chart(fig_exp, width="stretch")
 
 
 # ==============================================================================
@@ -612,7 +646,7 @@ with event_col1:
     selected_offline_str = st.selectbox("Target Station for Simulated Outage:", options=st_options, index=0)
 
 with event_col2:
-    btn_trigger_event = st.button("Simulate Outage Event", type="secondary", use_container_width=True)
+    btn_trigger_event = st.button("Simulate Outage Event", type="secondary", width="stretch")
 
 if btn_trigger_event and selected_offline_str != "None":
     offline_id = selected_offline_str.split(":")[0]
@@ -638,11 +672,12 @@ if btn_trigger_event and selected_offline_str != "None":
 
 st.markdown("### Execution Summary & Export")
 
+route_dist = st.session_state.route_points[-1][2] if st.session_state.route_points else 0.0
 report_text = f"""================================================================================
 EVOLVE: INTELLIGENT EV ROUTE CHARGING OPTIMIZER REPORT
 ================================================================================
 Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}
-Corridor: {ORIGIN_NAME} -> {DESTINATION_NAME} ({TOTAL_ROUTE_DISTANCE_KM:.1f} km)
+Corridor: {st.session_state["origin"]} -> {st.session_state["dest"]} ({route_dist:.1f} km)
 
 1. EV SPECIFICATIONS & STATE
 --------------------------------------------------------------------------------

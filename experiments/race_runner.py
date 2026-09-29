@@ -38,6 +38,8 @@ def run_race(
     classical_result: Dict[str, Any] = {}
     quantum_result: Dict[str, Any] = {}
 
+    route_dist = route[-1][2] if route else 552.0
+
     def worker_dp():
         nonlocal classical_result
         stops, charges, obj, exec_t, nodes = solve_classical_dp(
@@ -47,7 +49,7 @@ def run_race(
             ev, stations, stops, charges, route, average_speed_kmh=average_speed_kmh
         )
         obj_details = calculate_objective(
-            ev, stops, charges, stations, alpha, beta, average_speed_kmh=average_speed_kmh
+            ev, stops, charges, stations, route_dist, alpha, beta, average_speed_kmh=average_speed_kmh
         )
         classical_result = {
             "engine": "Classical Dynamic Programming",
@@ -71,7 +73,7 @@ def run_race(
             ev, stations, stops, charges, route, average_speed_kmh=average_speed_kmh
         )
         obj_details = calculate_objective(
-            ev, stops, charges, stations, alpha, beta, average_speed_kmh=average_speed_kmh
+            ev, stops, charges, stations, route_dist, alpha, beta, average_speed_kmh=average_speed_kmh
         )
         quantum_result = {
             "engine": "Quantum-Inspired QUBO",

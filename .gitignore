@@ -8,6 +8,7 @@ __pycache__/
 venv/
 env/
 .venv/
+.venv-1/
 
 # IDE & OS
 .vscode/

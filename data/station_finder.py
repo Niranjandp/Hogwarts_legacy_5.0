@@ -4,8 +4,10 @@ Synthetic Charging Station Generator and Spatial Finder
 """
 
 from typing import List, Optional, Tuple, Dict, Any
+import requests
 from core.station_model import Station
-from data.route_engine import get_route, get_waypoint_at_km, interpolate_route_point
+from data.route_engine import get_route, get_waypoint_at_km, interpolate_route_point, haversine_distance
+from config import USE_OCM_API, OCM_API_KEY
 
 # Master list of 14 realistic synthetic charging stations along the Chennai -> Coimbatore highway
 STATION_DEFINITIONS = [
@@ -216,27 +218,159 @@ def interpolate_route_list(route: List[Tuple[float, float, float]], target_km: f
     return route[-1][0], route[-1][1]
 
 
+def fetch_ocm_stations(route: List[Tuple[float, float, float]]) -> List[Station]:
+    """Fetch live EV charging stations from OpenChargeMap along the route."""
+    stations_dict = {}
+    total_km = route[-1][2] if route else 0.0
+    
+    # Sample points along the route every ~100 km to query OCM
+    sample_points = []
+    current_km = 0.0
+    while current_km <= total_km:
+        lat, lon = interpolate_route_list(route, current_km)
+        sample_points.append((lat, lon))
+        current_km += 100.0
+    # ensure destination is included
+    if route:
+        sample_points.append((route[-1][0], route[-1][1]))
+    
+    for lat, lon in sample_points:
+        url = f"https://api.openchargemap.io/v3/poi?key={OCM_API_KEY}&latitude={lat}&longitude={lon}&distance=50&distanceunit=KM&maxresults=50"
+        try:
+            resp = requests.get(url, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data:
+                    st_id = str(item.get("ID"))
+                    if st_id in stations_dict:
+                        continue
+                        
+                    # Extract basics
+                    title = item.get("AddressInfo", {}).get("Title", f"Station {st_id}")
+                    s_lat = item.get("AddressInfo", {}).get("Latitude", lat)
+                    s_lon = item.get("AddressInfo", {}).get("Longitude", lon)
+                    
+                    # Project onto route to find distance_from_start_km
+                    min_d = float('inf')
+                    best_km = 0.0
+                    for r_lat, r_lon, r_km in route:
+                        d = haversine_distance(s_lat, s_lon, r_lat, r_lon)
+                        if d < min_d:
+                            min_d = d
+                            best_km = r_km
+                            
+                    # Connections
+                    connections = item.get("Connections", [])
+                    max_power = 22.0
+                    num_slots = item.get("NumberOfPoints", 1) or 1
+                    charger_type = "AC"
+                    conn_types = []
+                    
+                    for c in connections:
+                        power = c.get("PowerKW")
+                        if power and power > max_power:
+                            max_power = power
+                        lvl = c.get("LevelID")
+                        if lvl == 3:
+                            charger_type = "DC"
+                        type_id = c.get("ConnectionTypeID")
+                        if type_id == 33:
+                            conn_types.append("CCS2")
+                        elif type_id == 25:
+                            conn_types.append("Type2")
+                        elif type_id == 2:
+                            conn_types.append("CHAdeMO")
+                    
+                    if not conn_types:
+                        conn_types = ["CCS2", "Type2"]
+                        
+                    price = 15.0  # fallback simulated price
+                    
+                    st = Station(
+                        id=f"OCM-{st_id}",
+                        name=title,
+                        lat=s_lat,
+                        lon=s_lon,
+                        distance_from_start_km=best_km,
+                        charger_type=charger_type,
+                        max_power_kw=max_power,
+                        num_slots=num_slots,
+                        available_slots=num_slots,  # Telemetry_sim will overwrite this
+                        price_per_kwh=price,
+                        wait_time_minutes=0.0,
+                        is_operational=True,
+                        connector_types=conn_types,
+                        operating_hours="24/7"
+                    )
+                    stations_dict[st_id] = st
+        except Exception as e:
+            print(f"OCM Fetch Error: {e}")
+            
+    # Sort by route distance
+    sorted_stations = sorted(list(stations_dict.values()), key=lambda x: x.distance_from_start_km)
+    return sorted_stations
+
 def get_stations_along_route(route: Optional[List[Tuple[float, float, float]]] = None) -> List[Station]:
     """
     Constructs and returns the list of synthetic charging stations.
-    If route is provided, station GPS coordinates are scaled and interpolated precisely along the route path.
+    If route is provided, station GPS coordinates are dynamically generated along the route path.
     """
+    if USE_OCM_API and route:
+        ocm_stations = fetch_ocm_stations(route)
+        if ocm_stations:
+            return ocm_stations
+
     stations: List[Station] = []
     
-    total_km = 552.0
     if route and len(route) > 0:
         total_km = route[-1][2]
+        import random
+        # Seed for consistency across runs so stations don't move randomly on every render
+        random.seed(42)
         
-    scale_factor = total_km / 552.0 if total_km > 0 else 1.0
+        current_km = 0.0
+        station_id = 1
+        
+        while current_km < total_km:
+            # Place a station every 40 to 60 km
+            step = random.uniform(40.0, 60.0)
+            current_km += step
+            
+            if current_km >= total_km:
+                break
+                
+            lat, lon = interpolate_route_list(route, current_km)
+            
+            charger_type = random.choice(["AC", "DC", "DC", "DC"])
+            max_power = random.choice([50.0, 60.0, 120.0, 150.0]) if charger_type == "DC" else 22.0
+            num_slots = random.randint(2, 8)
+            
+            station = Station(
+                id=f"ST-{station_id:03d}",
+                name=f"Highway Route Station {station_id}",
+                lat=lat,
+                lon=lon,
+                distance_from_start_km=current_km,
+                charger_type=charger_type,
+                max_power_kw=max_power,
+                num_slots=num_slots,
+                available_slots=random.randint(1, num_slots),
+                price_per_kwh=round(random.uniform(12.0, 18.0), 2),
+                wait_time_minutes=random.choice([0.0, 5.0, 10.0, 15.0]),
+                is_operational=True,
+                connector_types=["CCS2", "Type2"] if charger_type == "DC" else ["Type2"],
+                operating_hours="24/7",
+            )
+            stations.append(station)
+            station_id += 1
+            
+        return stations
 
+    # Fallback to the original Chennai-Coimbatore definitions if no route is provided
     for defn in STATION_DEFINITIONS:
-        km = defn["km_mark"] * scale_factor
-        
-        if route:
-            lat, lon = interpolate_route_list(route, km)
-        else:
-            point = interpolate_route_point(km)
-            lat, lon = point[0], point[1]
+        km = defn["km_mark"]
+        point = interpolate_route_point(km)
+        lat, lon = point[0], point[1]
 
         station = Station(
             id=defn["id"],

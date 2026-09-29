@@ -1,6 +1,7 @@
 """
 EVolve: Intelligent EV Route Charging Optimizer
-Route Engine and Geographic Coordinate Services with optional Google Maps Platform integration
+Route Engine and Geographic Coordinate Services
+Fallback chain: Google Maps Routes API → OSRM (free, no key) → Static hardcoded waypoints
 """
 
 import math
@@ -37,20 +38,115 @@ def get_route(api_key: str = "", origin: str = "Chennai", destination: str = "Co
     Returns the route as a list of 3-tuples:
     [(latitude, longitude, km_from_start), ...]
 
-    If a valid Google Maps API Key is passed (or set in environment),
-    it fetches live route polyline waypoints via Google Routes API.
-    Otherwise, it returns the built-in 31-point GPS NH48/NH44/NH544 highway corridor route.
+    Priority fallback chain:
+    1. Google Maps Routes API (if api_key is valid and quota is available)
+    2. OSRM public routing API + Nominatim geocoding (free, no key required)
+    3. Built-in 31-point GPS static highway corridor as last resort
     """
+    # 1. Try Google Maps first
     key = api_key or GOOGLE_MAPS_API_KEY
     if key:
         google_route = fetch_google_maps_route(origin, destination, key)
         if google_route:
             return google_route
 
+    # 2. Fall back to OSRM (free, unlimited, uses OpenStreetMap data)
+    osrm_route = fetch_osrm_route(origin, destination)
+    if osrm_route:
+        return osrm_route
+
+    # 3. Last resort: hardcoded Chennai → Coimbatore static waypoints
     return [(wp[0], wp[1], wp[2]) for wp in ROUTE_WAYPOINTS]
 
-    return [(wp[0], wp[1], wp[2]) for wp in ROUTE_WAYPOINTS]
 
+def _geocode_city(city_name: str) -> Optional[Tuple[float, float]]:
+    """
+    Converts a city name to (lat, lon) using Nominatim (OpenStreetMap geocoder).
+    Free to use, no API key required.
+    """
+    if requests is None:
+        return None
+    try:
+        url = "https://nominatim.openstreetmap.org/search"
+        params = {"q": city_name, "format": "json", "limit": 1}
+        headers = {"User-Agent": "EVolve-EV-Optimizer/1.0"}
+        resp = requests.get(url, params=params, headers=headers, timeout=5)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data:
+                return float(data[0]["lat"]), float(data[0]["lon"])
+    except Exception:
+        pass
+    return None
+
+
+def fetch_osrm_route(origin: str, destination: str) -> Optional[List[Tuple[float, float, float]]]:
+    """
+    Fetches a real driving route between two city names using:
+    - Nominatim (OSM) for free geocoding of city names
+    - OSRM public demo server for free turn-by-turn routing
+    Returns [(lat, lon, cumulative_km), ...] or None on failure.
+    """
+    if requests is None:
+        return None
+    try:
+        # Geocode both cities
+        origin_coords = _geocode_city(origin)
+        dest_coords = _geocode_city(destination)
+        if not origin_coords or not dest_coords:
+            return None
+
+        o_lat, o_lon = origin_coords
+        d_lat, d_lon = dest_coords
+
+        # Call OSRM public routing API
+        url = (
+            f"http://router.project-osrm.org/route/v1/driving/"
+            f"{o_lon},{o_lat};{d_lon},{d_lat}"
+            f"?overview=full&geometries=geojson&steps=false"
+        )
+        resp = requests.get(url, timeout=15)
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        if data.get("code") != "Ok" or not data.get("routes"):
+            return None
+
+        coordinates = data["routes"][0]["geometry"]["coordinates"]
+        # coordinates are [lon, lat] pairs in GeoJSON format
+        points: List[Tuple[float, float, float]] = []
+        cum_km = 0.0
+        if coordinates:
+            points.append((coordinates[0][1], coordinates[0][0], 0.0))
+            for i in range(1, len(coordinates)):
+                prev = coordinates[i - 1]
+                curr = coordinates[i]
+                d = haversine_distance(prev[1], prev[0], curr[1], curr[0])
+                cum_km += d
+                points.append((curr[1], curr[0], round(cum_km, 2)))
+        return points if len(points) > 1 else None
+    except Exception:
+        return None
+
+
+def _parse_waypoint(wp_str: str) -> dict:
+    parts = wp_str.split(',')
+    if len(parts) == 2:
+        try:
+            lat = float(parts[0].strip())
+            lon = float(parts[1].strip())
+            return {
+                "location": {
+                    "latLng": {
+                        "latitude": lat,
+                        "longitude": lon
+                    }
+                }
+            }
+        except ValueError:
+            pass
+    return {"address": wp_str}
 
 def fetch_google_maps_route(origin: str, destination: str, api_key: str) -> Optional[List[Tuple[float, float, float]]]:
     """
@@ -67,8 +163,8 @@ def fetch_google_maps_route(origin: str, destination: str, api_key: str) -> Opti
             "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline",
         }
         body = {
-            "origin": {"address": origin},
-            "destination": {"address": destination},
+            "origin": _parse_waypoint(origin),
+            "destination": _parse_waypoint(destination),
             "travelMode": "DRIVE",
             "routingPreference": "TRAFFIC_AWARE",
         }

@@ -6,7 +6,7 @@ Multi-Objective Cost & Time Utility Function
 from typing import List, Dict, Any
 from core.ev_model import EV
 from core.station_model import Station
-from config import DEFAULT_ALPHA, DEFAULT_BETA, TOTAL_ROUTE_DISTANCE_KM
+from config import DEFAULT_ALPHA, DEFAULT_BETA
 
 
 def calculate_objective(
@@ -14,6 +14,7 @@ def calculate_objective(
     stop_sequence: List[str],
     charge_amounts: Dict[str, float],
     stations: List[Station],
+    route_distance_km: float,
     alpha: float = DEFAULT_ALPHA,
     beta: float = DEFAULT_BETA,
     average_speed_kmh: float = 75.0,
@@ -33,7 +34,7 @@ def calculate_objective(
     station_map: Dict[str, Station] = {st.id: st for st in stations}
 
     # 1. Travel Time (highway driving time in minutes)
-    travel_time_hours = TOTAL_ROUTE_DISTANCE_KM / max(10.0, average_speed_kmh)
+    travel_time_hours = route_distance_km / max(10.0, average_speed_kmh)
     travel_time_minutes = travel_time_hours * 60.0
 
     waiting_time_minutes = 0.0

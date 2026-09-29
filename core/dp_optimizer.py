@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from math import ceil
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 from config import (
     BATTERY_BUFFER_PERCENT,
@@ -11,7 +11,6 @@ from config import (
     DEFAULT_BETA,
     DESTINATION_RESERVE_PERCENT,
     DP_SOC_DISCRETIZATION_LEVELS,
-    TOTAL_ROUTE_DISTANCE_KM,
 )
 from core.ev_model import EV
 from core.objective import calculate_objective
@@ -51,6 +50,7 @@ def optimize_charging_plan(
     alpha: float = DEFAULT_ALPHA,
     beta: float = DEFAULT_BETA,
     soc_levels: int = DP_SOC_DISCRETIZATION_LEVELS,
+    route: Optional[List[Tuple[float, float, float]]] = None,
 ) -> ChargingPlan:
     """Find a feasible, low-cost charging plan using a discretized SoC dynamic program.
 
@@ -65,11 +65,13 @@ def optimize_charging_plan(
     if alpha < 0 or beta < 0 or alpha + beta == 0:
         raise ValueError("alpha and beta must be non-negative and not both zero")
 
+    route_dist = route[-1][2] if route else 552.0
+
     route_stations = sorted(
         (
             station
             for station in stations
-            if 0.0 < station.distance_from_start_km < TOTAL_ROUTE_DISTANCE_KM
+            if 0.0 < station.distance_from_start_km < route_dist
         ),
         key=lambda station: station.distance_from_start_km,
     )
@@ -152,7 +154,7 @@ def optimize_charging_plan(
             if location_index == 0
             else route_stations[location_index - 1].distance_from_start_km
         )
-        distance_km = TOTAL_ROUTE_DISTANCE_KM - location_km
+        distance_km = route_dist - location_km
         for label in labels.values():
             arrival_soc = label.soc_percent - (
                 ev.energy_needed(distance_km) / ev.battery_capacity_kwh * 100.0
@@ -170,6 +172,7 @@ def optimize_charging_plan(
             stations,
             stops,
             charges,
+            route=route,
             start_time_hour=start_time_hour,
             average_speed_kmh=average_speed_kmh,
         )
@@ -178,6 +181,7 @@ def optimize_charging_plan(
             stops,
             charges,
             stations,
+            route_distance_km=route_dist,
             alpha=alpha,
             beta=beta,
             average_speed_kmh=average_speed_kmh,

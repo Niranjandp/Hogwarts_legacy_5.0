@@ -13,6 +13,12 @@ GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "AIzaSyC4QF5aavOyHDD
 USE_GOOGLE_MAPS_API: bool = bool(GOOGLE_MAPS_API_KEY)
 
 # ==============================================================================
+# OPEN CHARGE MAP API INTEGRATION
+# ==============================================================================
+OCM_API_KEY: str = os.getenv("OCM_API_KEY", "7b09bf93-eec3-4fc9-b57f-132d0c242c11")
+USE_OCM_API: bool = bool(OCM_API_KEY)
+
+# ==============================================================================
 # ROUTE CONFIGURATION: Chennai (Palakarai) -> Coimbatore via NH48 / NH44 / NH544
 # ==============================================================================
 

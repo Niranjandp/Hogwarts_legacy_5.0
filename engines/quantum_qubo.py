@@ -17,7 +17,6 @@ from core.objective import calculate_objective
 from config import (
     BATTERY_BUFFER_PERCENT,
     DESTINATION_RESERVE_PERCENT,
-    TOTAL_ROUTE_DISTANCE_KM,
     QUBO_P1,
     QUBO_P2,
     QUBO_P3,
@@ -59,8 +58,10 @@ def build_qubo(
     safe_start_range_km = ev.safe_range_km()  # Range from current SoC down to 10%
     full_safe_range_km = ev.range_remaining_km(min_soc_percent=BATTERY_BUFFER_PERCENT)
 
+    route_dist = route[-1][2] if route else 552.0
+    
     # Required range to reach destination with 15% reserve
-    energy_req_dest = ev.energy_needed(TOTAL_ROUTE_DISTANCE_KM)
+    energy_req_dest = ev.energy_needed(route_dist)
     soc_req_dest = (energy_req_dest / ev.battery_capacity_kwh) * 100.0
     soc_shortfall = (ev.current_soc_percent - soc_req_dest)
 
@@ -118,11 +119,11 @@ def build_qubo(
 
     # --- 3. GLOBAL DESTINATION PENALTY P3 ---
     # Penalize config where zero stops are selected if current range cannot reach destination
-    if ev.range_remaining_km(min_soc_percent=DESTINATION_RESERVE_PERCENT) < TOTAL_ROUTE_DISTANCE_KM:
+    if ev.range_remaining_km(min_soc_percent=DESTINATION_RESERVE_PERCENT) < route_dist:
         for i in range(N):
             # Discount penalty when stopping at well-placed mid-route stations
-            dist_from_mid = abs(stations[i].distance_from_start_km - (TOTAL_ROUTE_DISTANCE_KM / 2.0))
-            Q[(i, i)] -= P3 * (1.0 - dist_from_mid / TOTAL_ROUTE_DISTANCE_KM)
+            dist_from_mid = abs(stations[i].distance_from_start_km - (route_dist / 2.0))
+            Q[(i, i)] -= P3 * (1.0 - dist_from_mid / route_dist)
 
     return Q
 
@@ -158,6 +159,8 @@ def solve(
         exec_t = time.perf_counter() - start_time
         return [], {}, 999.0, exec_t, num_reads, 0.0
 
+    route_dist = route[-1][2] if route else 552.0
+
     # Build QUBO Q matrix
     Q = build_qubo(ev, sorted_stations, route, alpha, beta)
 
@@ -181,7 +184,7 @@ def solve(
         selected_stops = [sorted_stations[i].id for i in selected_indices]
 
         # Calculate exact charge amounts required for this stop selection
-        charge_map = _compute_required_charges(ev, sorted_stations, selected_stops)
+        charge_map = _compute_required_charges(ev, sorted_stations, selected_stops, route)
 
         # Validate feasibility against all 6 constraints
         is_feasible, violations, _ = validate_solution(
@@ -192,7 +195,7 @@ def solve(
             feasible_count += 1
 
         # Calculate objective score
-        obj_res = calculate_objective(ev, selected_stops, charge_map, sorted_stations, alpha, beta, average_speed_kmh)
+        obj_res = calculate_objective(ev, selected_stops, charge_map, sorted_stations, route_dist, alpha, beta, average_speed_kmh)
         score = obj_res["combined_score"]
 
         # If feasible and better score, or if no feasible candidate found yet
@@ -208,8 +211,8 @@ def solve(
 
     # Fallback if no feasible read found: compute greedy minimum charge path
     if not best_candidate_stops:
-        best_candidate_stops, best_candidate_charges = _fallback_greedy_stops(ev, sorted_stations)
-        obj_res = calculate_objective(ev, best_candidate_stops, best_candidate_charges, sorted_stations, alpha, beta)
+        best_candidate_stops, best_candidate_charges = _fallback_greedy_stops(ev, sorted_stations, route)
+        obj_res = calculate_objective(ev, best_candidate_stops, best_candidate_charges, sorted_stations, route_dist, alpha, beta)
         best_candidate_score = obj_res["combined_score"]
 
     feasibility_rate = (feasible_count / float(num_reads)) * 100.0
@@ -225,7 +228,7 @@ def solve(
     )
 
 
-def _compute_required_charges(ev: EV, stations: List[Station], stop_sequence: List[str]) -> Dict[str, float]:
+def _compute_required_charges(ev: EV, stations: List[Station], stop_sequence: List[str], route: Optional[List[Tuple[float, float, float]]] = None) -> Dict[str, float]:
     """
     Computes exact optimal energy (kWh) needed at each selected station in stop_sequence
     to safely reach destination with 15% reserve.
@@ -242,8 +245,9 @@ def _compute_required_charges(ev: EV, stations: List[Station], stop_sequence: Li
         dist_leg = st.distance_from_start_km - curr_km
         sim_ev.consume_distance(dist_leg)
 
+        route_dist = route[-1][2] if route else 552.0
         # Distance remaining from this stop to destination
-        dist_remaining = TOTAL_ROUTE_DISTANCE_KM - st.distance_from_start_km
+        dist_remaining = route_dist - st.distance_from_start_km
 
         # Energy needed to reach destination (or next stop) preserving reserve
         if idx < len(stop_stations) - 1:
@@ -265,8 +269,9 @@ def _compute_required_charges(ev: EV, stations: List[Station], stop_sequence: Li
     return charge_map
 
 
-def _fallback_greedy_stops(ev: EV, stations: List[Station]) -> Tuple[List[str], Dict[str, float]]:
+def _fallback_greedy_stops(ev: EV, stations: List[Station], route: Optional[List[Tuple[float, float, float]]] = None) -> Tuple[List[str], Dict[str, float]]:
     """Greedy fallback stop selector."""
+    route_dist = route[-1][2] if route else 552.0
     sorted_st = sorted(stations, key=lambda s: s.distance_from_start_km)
     stops = []
     charges = {}
@@ -284,7 +289,7 @@ def _fallback_greedy_stops(ev: EV, stations: List[Station]) -> Tuple[List[str], 
             added = sim_ev.charge(needed_kwh)
             stops.append(st.id)
             charges[st.id] = round(added, 2)
-            if sim_ev.can_reach(TOTAL_ROUTE_DISTANCE_KM - curr_km, min_arrival_soc=DESTINATION_RESERVE_PERCENT):
+            if sim_ev.can_reach(route_dist - curr_km, min_arrival_soc=DESTINATION_RESERVE_PERCENT):
                 break
 
     return stops, charges
