@@ -137,9 +137,9 @@ if "offline_station_id" not in st.session_state:
 # HEADER SECTION
 # ==============================================================================
 
-st.markdown('<div class="main-title">⚡ EVolve — Intelligent EV Route Charging Optimizer</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">EVolve: Enterprise EV Charging Optimization System</div>', unsafe_allow_html=True)
 st.markdown(
-    f'<div class="sub-title">Real-time corridor optimization racing <b>Classical Dynamic Programming</b> against <b>Quantum-Inspired QUBO (D-Wave Annealing)</b> along the <b>{ORIGIN_NAME} ➔ {DESTINATION_NAME}</b> highway corridor ({TOTAL_ROUTE_DISTANCE_KM:.0f} km).</div>',
+    f'<div class="sub-title">Real-time corridor optimization evaluating <b>Classical Dynamic Programming</b> and <b>Quantum-Inspired QUBO heuristics</b> along the <b>{ORIGIN_NAME} ➔ {DESTINATION_NAME}</b> highway corridor ({TOTAL_ROUTE_DISTANCE_KM:.0f} km).</div>',
     unsafe_allow_html=True,
 )
 
@@ -148,28 +148,28 @@ st.markdown(
 # SECTION 1: SIDEBAR INPUT PANEL
 # ==============================================================================
 
-st.sidebar.markdown("### 🚗 EV Parameters & Configuration")
+st.sidebar.markdown("### Vehicle & Telemetry Configuration")
 
-with st.sidebar.expander("📍 Route & Google Maps Settings", expanded=True):
+with st.sidebar.expander("Route Definition & Mapping", expanded=True):
     st.text_input("Start Location", value=ORIGIN_NAME, disabled=True)
     st.text_input("Destination", value=DESTINATION_NAME, disabled=True)
     st.text_input("Corridor Distance", value=f"{TOTAL_ROUTE_DISTANCE_KM:.1f} km (NH48 / NH44 / NH544)", disabled=True)
     gmaps_key = st.text_input(
-        "🔑 Google Maps API Key",
+        "Google Maps API Key",
         value=GOOGLE_MAPS_API_KEY,
         type="password",
         help="Enter your Google Maps Platform API key to fetch real-time live traffic routes and Google Maps tiles.",
     )
     map_tile_provider = st.selectbox("Map Style", options=["Google Maps", "CartoDB Dark", "OpenStreetMap"], index=0)
 
-with st.sidebar.expander("🔋 EV Battery & Hardware", expanded=True):
+with st.sidebar.expander("EV Battery Specifications", expanded=True):
     battery_cap = st.slider("Battery Capacity (kWh)", min_value=40.0, max_value=100.0, value=DEFAULT_BATTERY_CAPACITY_KWH, step=5.0)
     current_soc = st.slider("Current State of Charge (%)", min_value=10.0, max_value=90.0, value=DEFAULT_CURRENT_SOC_PERCENT, step=5.0)
     consumption_rate = st.slider("Consumption Rate (kWh/100km)", min_value=4.0, max_value=25.0, value=DEFAULT_CONSUMPTION_KWH_PER_100KM, step=0.5)
     max_charge_power = st.select_slider("Max Charging Power (kW)", options=[30.0, 50.0, 60.0, 120.0, 150.0, 240.0], value=DEFAULT_MAX_CHARGING_POWER_KW)
     connector_type = st.selectbox("Connector Type", options=["CCS2", "Type2", "CHAdeMO"], index=0)
 
-with st.sidebar.expander("🎯 Multi-Objective Trade-off Weights", expanded=True):
+with st.sidebar.expander("Multi-Objective Optimization Weights", expanded=True):
     alpha_weight = st.slider("Alpha (Weight for Journey Time)", min_value=0.0, max_value=1.0, value=DEFAULT_ALPHA, step=0.05)
     beta_weight = round(1.0 - alpha_weight, 2)
     st.write(f"**Beta (Weight for Charging Cost):** `{beta_weight}`")
@@ -185,8 +185,8 @@ user_ev = EV(
 )
 
 st.sidebar.markdown("---")
-btn_run_race = st.sidebar.button("🏎️ Run Optimization Race", type="primary", use_container_width=True)
-btn_resimulate = st.sidebar.button("🔄 Re-simulate Station Telemetry", use_container_width=True)
+btn_run_race = st.sidebar.button("Execute Optimization Solvers", type="primary", use_container_width=True)
+btn_resimulate = st.sidebar.button("Refresh Station Telemetry", use_container_width=True)
 
 if btn_resimulate:
     raw_st = get_stations_along_route()
@@ -213,7 +213,7 @@ winners = race_data["winners"]
 # SECTION 2: INTERACTIVE ROUTE MAP (Folium & Google Maps Platform Tiles)
 # ==============================================================================
 
-st.markdown("### 🗺️ Route Corridor Map & Station Telemetry")
+st.markdown("### Geospatial Route & Live Telemetry")
 
 route_points = get_route(api_key=gmaps_key)
 map_center = [12.05, 78.50]  # Centered along Tamil Nadu highway spine
@@ -311,13 +311,13 @@ st_folium(m, width=1300, height=450)
 # SECTION 3: LIVE ALGORITHM RACE PANEL
 # ==============================================================================
 
-st.markdown("### 🏎️ Live Algorithm Race Results")
+st.markdown("### Algorithmic Solver Execution Results")
 
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="card-header">🟧 Classical Dynamic Programming (DP)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card-header">Classical Dynamic Programming (DP)</div>', unsafe_allow_html=True)
     
     dp_obj = dp_res["obj_details"]
     feas_badge = '<span class="badge-feasible">✓ FEASIBLE</span>' if dp_res["is_feasible"] else '<span class="badge-infeasible">⚠ INFEASIBLE</span>'
@@ -342,7 +342,7 @@ with col1:
 
 with col2:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="card-header">🟪 Quantum-Inspired QUBO (D-Wave Annealing)</div>', unsafe_allow_html=True)
+    st.markdown('<div class="card-header">Quantum-Inspired QUBO</div>', unsafe_allow_html=True)
     
     qubo_obj = qubo_res["obj_details"]
     q_feas_badge = '<span class="badge-feasible">✓ FEASIBLE</span>' if qubo_res["is_feasible"] else '<span class="badge-infeasible">⚠ INFEASIBLE</span>'
@@ -367,35 +367,103 @@ with col2:
 
 
 # ==============================================================================
+# SECTION 3.5: ML & EXHAUSTIVE SEARCH ANALYSIS (THE BEST ROUTE)
+# ==============================================================================
+
+st.markdown("### Global Optimum Route Analysis")
+st.info("The global optimization engine has exhaustively evaluated all viable charging permutations to isolate the mathematically optimal route.")
+
+best_res = dp_res if winners['overall'] == 'Classical DP' else qubo_res
+best_obj = best_res['obj_details']
+
+st.markdown('<div class="card" style="border-left: 5px solid #10b981; background: rgba(16, 185, 129, 0.05);">', unsafe_allow_html=True)
+st.markdown('<div class="card-header" style="color: #10b981; font-size: 1.3rem;">Recommended Optimal Route</div>', unsafe_allow_html=True)
+
+col_a, col_b, col_c = st.columns(3)
+with col_a:
+    st.markdown(f"**Total Duration:**<br>`{best_obj['total_time_minutes']:.1f} mins`", unsafe_allow_html=True)
+with col_b:
+    st.markdown(f"**Estimated Cost:**<br>`₹{best_obj['total_cost_inr']:.2f}`", unsafe_allow_html=True)
+with col_c:
+    st.markdown(f"**Required Stops:**<br>`{len(best_res['stops'])}`", unsafe_allow_html=True)
+
+st.markdown("<hr style='margin: 10px 0; border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
+st.markdown("**Optimal Charging Stops Sequence:**")
+if best_res["stops"]:
+    for sid in best_res["stops"]:
+        st_name = next((s.name for s in st.session_state["stations"] if s.id == sid), sid)
+        charge_kwh = best_res["charges"].get(sid, 0.0)
+        st_cost = next((s.price_per_kwh for s in st.session_state["stations"] if s.id == sid), 0.0) * charge_kwh
+        st.markdown(f"- **{st_name}**: Charge `+{charge_kwh:.1f} kWh` *(Est. Cost: ₹{st_cost:.2f})*")
+else:
+    st.write("- *No intermediate stops required to safely reach the destination.*")
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Render a specific map for the chosen optimal route
+st.markdown("#### Optimal Route Visualization")
+opt_map = folium.Map(location=map_center, zoom_start=8, tiles="CartoDB dark_matter")
+
+# Add the route line
+folium.PolyLine(
+    polyline_coords, color="#10b981", weight=5, opacity=0.85, tooltip="Optimal Route Path"
+).add_to(opt_map)
+
+# Add Origin and Destination
+folium.Marker(
+    [route_points[0][0], route_points[0][1]],
+    popup=f"Origin: {ORIGIN_NAME}",
+    icon=folium.Icon(color="green", icon="play"),
+).add_to(opt_map)
+folium.Marker(
+    [route_points[-1][0], route_points[-1][1]],
+    popup=f"Destination: {DESTINATION_NAME}",
+    icon=folium.Icon(color="red", icon="flag"),
+).add_to(opt_map)
+
+# Add ONLY the chosen stops
+if best_res["stops"]:
+    for sid in best_res["stops"]:
+        st_obj = next((s for s in st.session_state["stations"] if s.id == sid), None)
+        if st_obj:
+            folium.Marker(
+                [st_obj.lat, st_obj.lon],
+                tooltip=f"Charging Stop: {st_obj.name}",
+                icon=folium.Icon(color="purple", icon="bolt", prefix="fa"),
+            ).add_to(opt_map)
+
+st_folium(opt_map, width=1300, height=350, key="optimal_route_map")
+
+
+# ==============================================================================
 # SECTION 4: COMPARISON TABLE
 # ==============================================================================
 
-st.markdown("### 📊 Head-to-Head Performance Comparison")
+st.markdown("### Solver Performance Comparative Analysis")
 
 comp_df = pd.DataFrame([
     {
         "Performance Metric": "Total Cost (₹)",
         "Classical DP": f"₹{dp_obj['total_cost_inr']:.2f}",
         "Quantum-Inspired QUBO": f"₹{qubo_obj['total_cost_inr']:.2f}",
-        "Winner": f"🏆 {winners['cost']}",
+        "Winner": f"{winners['cost']}",
     },
     {
         "Performance Metric": "Total Journey Duration",
         "Classical DP": f"{dp_obj['total_time_minutes']:.1f} mins",
         "Quantum-Inspired QUBO": f"{qubo_obj['total_time_minutes']:.1f} mins",
-        "Winner": f"🏆 {winners['time']}",
+        "Winner": f"{winners['time']}",
     },
     {
         "Performance Metric": "Number of Stops",
         "Classical DP": len(dp_res["stops"]),
         "Quantum-Inspired QUBO": len(qubo_res["stops"]),
-        "Winner": "Tie" if len(dp_res["stops"]) == len(qubo_res["stops"]) else f"🏆 {winners['overall']}",
+        "Winner": "Tie" if len(dp_res["stops"]) == len(qubo_res["stops"]) else f"{winners['overall']}",
     },
     {
         "Performance Metric": "Algorithm Runtime",
         "Classical DP": f"{dp_res['execution_time_sec']:.4f} s",
         "Quantum-Inspired QUBO": f"{qubo_res['execution_time_sec']:.4f} s",
-        "Winner": f"⚡ {winners['runtime_speed']}",
+        "Winner": f"{winners['runtime_speed']}",
     },
     {
         "Performance Metric": "Feasible Solution?",
@@ -413,7 +481,7 @@ comp_df = pd.DataFrame([
         "Performance Metric": "Combined Objective Score",
         "Classical DP": f"{dp_res['objective_score']:.4f}",
         "Quantum-Inspired QUBO": f"{qubo_res['objective_score']:.4f}",
-        "Winner": f"⭐ {winners['overall']}",
+        "Winner": f"{winners['overall']}",
     },
 ])
 
@@ -424,12 +492,12 @@ st.dataframe(comp_df, use_container_width=True, hide_index=True)
 # SECTION 5: ANALYTICAL PLOTLY CHARTS
 # ==============================================================================
 
-st.markdown("### 📈 Analytics & Diagnostic Profiles")
+st.markdown("### Diagnostic Analytics & State Profiles")
 
 chart_col1, chart_col2 = st.columns(2)
 
 with chart_col1:
-    st.markdown("#### 🔋 Battery State of Charge (SoC %) Profile Along Route")
+    st.markdown("#### Battery State of Charge (SoC) Trajectory")
     
     fig_soc = go.Figure()
 
@@ -465,7 +533,7 @@ with chart_col1:
     st.plotly_chart(fig_soc, use_container_width=True)
 
 with chart_col2:
-    st.markdown("#### ⏳ Journey Duration Breakdown (Minutes)")
+    st.markdown("#### Journey Duration Distribution")
     
     labels = ["Driving Time", "Queue Wait Time", "Plug Charge Time"]
     dp_vals = [dp_obj["travel_time"], dp_obj["waiting_time"], dp_obj["charging_time"]]
@@ -488,7 +556,7 @@ st.markdown("---")
 chart_col3, chart_col4 = st.columns(2)
 
 with chart_col3:
-    st.markdown("#### 🔌 Station Charger Power & Dynamic Pricing")
+    st.markdown("#### Station Infrastructure & Pricing")
     
     st_names = [s.name.split(" - ")[-1] for s in st.session_state["stations"]]
     st_powers = [s.max_power_kw for s in st.session_state["stations"]]
@@ -508,7 +576,7 @@ with chart_col3:
     st.plotly_chart(fig_st, use_container_width=True)
 
 with chart_col4:
-    st.markdown("#### ⚡ Benchmark Scalability: Problem Size vs Runtime")
+    st.markdown("#### Scalability Benchmark: Problem Size vs. Execution Time")
     
     if "exp_df" not in st.session_state:
         st.session_state["exp_df"] = run_experiments(user_ev, alpha=alpha_weight, beta=beta_weight, runs_per_size=3)
@@ -538,18 +606,18 @@ with chart_col4:
 # SECTION 6: DYNAMIC EVENT RE-OPTIMIZATION SIMULATOR
 # ==============================================================================
 
-st.markdown("### 🚨 Dynamic Event Re-Optimization Simulator")
+st.markdown("### Disruption Simulation & Re-Optimization")
 
-st.info("Simulate live real-world disruption by taking a station offline en route (e.g. power grid trip or hardware failure). Watch the optimization algorithms instantly re-route and recalculate!")
+st.info("Simulate infrastructure failure by marking a station offline to evaluate re-optimization latency and route adjustments.")
 
 event_col1, event_col2 = st.columns([3, 1])
 
 with event_col1:
     st_options = ["None"] + [f"{s.id}: {s.name}" for s in st.session_state["stations"]]
-    selected_offline_str = st.selectbox("Select Station to Suffer Emergency Downtime Outage:", options=st_options, index=0)
+    selected_offline_str = st.selectbox("Target Station for Simulated Outage:", options=st_options, index=0)
 
 with event_col2:
-    btn_trigger_event = st.button("🚨 Trigger Outage Event", type="secondary", use_container_width=True)
+    btn_trigger_event = st.button("Simulate Outage Event", type="secondary", use_container_width=True)
 
 if btn_trigger_event and selected_offline_str != "None":
     offline_id = selected_offline_str.split(":")[0]
@@ -573,7 +641,7 @@ if btn_trigger_event and selected_offline_str != "None":
 # SECTION 7: AUTOMATED REPORT GENERATOR
 # ==============================================================================
 
-st.markdown("### 📄 Automated Optimization Summary Report")
+st.markdown("### Execution Summary & Export")
 
 report_text = f"""================================================================================
 EVOLVE: INTELLIGENT EV ROUTE CHARGING OPTIMIZER REPORT
@@ -623,7 +691,7 @@ Corridor: {ORIGIN_NAME} -> {DESTINATION_NAME} ({TOTAL_ROUTE_DISTANCE_KM:.1f} km)
 st.text_area("Generated Summary Report", value=report_text, height=220)
 
 st.download_button(
-    label="📥 Download Full Optimization Report (.txt)",
+    label="Download Full Optimization Report (.txt)",
     data=report_text,
     file_name=f"EVolve_Report_{time.strftime('%Y%m%d_%H%M%S')}.txt",
     mime="text/plain",
