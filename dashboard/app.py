@@ -73,13 +73,13 @@ st.set_page_config(
     page_title="EVolve - Intelligent EV Route Charging Optimizer",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="auto",
 )
 
-# Custom CSS styling for modern glassmorphic aesthetics
+# Custom CSS styling for modern glassmorphic aesthetics & mobile/desktop responsiveness
 st.markdown("""
 <style>
-    /* Dark Theme Accent Adjustments */
+    /* Dark Theme Base */
     .stApp {
         background-color: #0b0f19;
         color: #e2e8f0;
@@ -87,13 +87,14 @@ st.markdown("""
     
     /* Header Styling */
     .main-title {
-        font-family: 'Inter', sans-serif;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         font-size: 2.4rem;
         font-weight: 800;
         background: linear-gradient(135deg, #00F2FE 0%, #4FACFE 100%);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         margin-bottom: 0.2rem;
+        word-break: break-word;
     }
     
     .sub-title {
@@ -101,20 +102,28 @@ st.markdown("""
         font-size: 1.05rem;
         font-weight: 400;
         margin-bottom: 1.5rem;
+        line-height: 1.5;
     }
 
-    /* Metric Cards */
+    /* Glassmorphic Metric Cards */
     .card {
-        background: rgba(30, 41, 59, 0.7);
+        background: rgba(30, 41, 59, 0.75);
         border: 1px solid rgba(255, 255, 255, 0.1);
         border-radius: 12px;
         padding: 1.2rem;
         margin-bottom: 1rem;
-        backdrop-filter: blur(8px);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    
+    .card:hover {
+        border-color: rgba(56, 189, 248, 0.4);
+        box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.4);
     }
     
     .card-header {
-        font-size: 1.1rem;
+        font-size: 1.15rem;
         font-weight: 700;
         color: #38bdf8;
         margin-bottom: 0.5rem;
@@ -127,6 +136,7 @@ st.markdown("""
         border-radius: 6px;
         font-size: 0.85rem;
         font-weight: 600;
+        display: inline-block;
     }
 
     .badge-infeasible {
@@ -136,6 +146,71 @@ st.markdown("""
         border-radius: 6px;
         font-size: 0.85rem;
         font-weight: 600;
+        display: inline-block;
+    }
+
+    /* Touch-friendly and responsive UI improvements */
+    .stButton button {
+        min-height: 44px;
+        border-radius: 8px;
+        font-weight: 600;
+        letter-spacing: 0.2px;
+        transition: all 0.2s ease;
+    }
+
+    /* Responsive Dataframe and Table horizontal scrolling container */
+    div[data-testid="stDataFrame"], div[data-testid="stTable"], .stTable {
+        width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    /* Mobile Screens (≤ 768px Smartphones and Small Tablets) */
+    @media (max-width: 768px) {
+        .main-title {
+            font-size: 1.7rem !important;
+            line-height: 1.25 !important;
+        }
+        .sub-title {
+            font-size: 0.9rem !important;
+            margin-bottom: 1rem !important;
+        }
+        .card {
+            padding: 0.85rem !important;
+            border-radius: 10px !important;
+            margin-bottom: 0.75rem !important;
+        }
+        .card-header {
+            font-size: 1.0rem !important;
+        }
+        .stButton button {
+            width: 100% !important;
+            padding: 10px 14px !important;
+            font-size: 0.95rem !important;
+        }
+        /* Metric values on mobile */
+        div[data-testid="stMetricValue"] {
+            font-size: 1.3rem !important;
+        }
+        div[data-testid="stMetricLabel"] {
+            font-size: 0.8rem !important;
+        }
+        /* Full width for block containers */
+        .block-container {
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+            padding-top: 2rem !important;
+        }
+    }
+
+    /* Small Mobile (≤ 480px) */
+    @media (max-width: 480px) {
+        .main-title {
+            font-size: 1.45rem !important;
+        }
+        .card {
+            padding: 0.7rem !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -647,10 +722,10 @@ def render_live_route_map():
             icon=folium.Icon(color=icon_color, icon=icon_type, prefix="fa" if "fa" in icon_type else "glyphicon"),
         ).add_to(m)
 
-    # Render Folium Map in Streamlit with click and view retention
+    # Render Folium Map in Streamlit with responsive container width
     map_output = st_folium(
         m,
-        width=1300,
+        use_container_width=True,
         height=450,
         zoom=st.session_state.get("map_zoom"),
         center=st.session_state.get("map_center"),
