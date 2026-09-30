@@ -1,6 +1,6 @@
-# 🚀 EVolve Deployment Guide (Desktop & Mobile Ready)
+# 🚀 EVlove Deployment Guide (Desktop & Mobile Ready)
 
-EVolve is an Intelligent EV Route & Charging Optimizer powered by Classical Dynamic Programming and Quantum QUBO simulated annealing. It is configured to run on both desktop and mobile web browsers with responsive viewports, touch-friendly UI controls, and live telemetry synchronization.
+EVlove is an Intelligent EV Route & Charging Optimizer powered by Classical Dynamic Programming and Quantum QUBO simulated annealing. It is configured to run on both desktop and mobile web browsers with responsive viewports, touch-friendly UI controls, and live telemetry synchronization.
 
 ---
 

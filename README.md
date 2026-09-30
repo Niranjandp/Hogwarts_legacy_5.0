@@ -1,10 +1,10 @@
-# EVolve: Intelligent EV Route Charging Optimizer
+# EVlove: Intelligent EV Route Charging Optimizer
 
-![EVolve Dashboard Banner](https://img.shields.io/badge/Status-Active-brightgreen.svg)
+![EVlove Dashboard Banner](https://img.shields.io/badge/Status-Active-brightgreen.svg)
 ![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.30%2B-red.svg)
 
-**EVolve** is an intelligent Electric Vehicle (EV) route charging optimization system designed to find the optimal charging strategy along a long-distance corridor. It minimizes travel time, waiting time, and charging cost by employing both Classical Dynamic Programming and Quantum-Inspired QUBO heuristics to find the optimal charging path.
+**EVlove** is an intelligent Electric Vehicle (EV) route charging optimization system designed to find the optimal charging strategy along a long-distance corridor. It minimizes travel time, waiting time, and charging cost by employing both Classical Dynamic Programming and Quantum-Inspired QUBO heuristics to find the optimal charging path.
 
 ## 🚀 Features
 
@@ -48,7 +48,7 @@
 
 ## 🏃‍♂️ Running the Application
 
-To start the interactive EVolve dashboard, run:
+To start the interactive EVlove dashboard, run:
 ```bash
 streamlit run dashboard/app.py
 ```

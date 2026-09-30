@@ -69,7 +69,7 @@ def _geocode_city(city_name: str) -> Optional[Tuple[float, float]]:
     try:
         url = "https://nominatim.openstreetmap.org/search"
         params = {"q": city_name, "format": "json", "limit": 1}
-        headers = {"User-Agent": "EVolve-EV-Optimizer/1.0"}
+        headers = {"User-Agent": "EVlove-EV-Optimizer/1.0"}
         resp = requests.get(url, params=params, headers=headers, timeout=5)
         if resp.status_code == 200:
             data = resp.json()

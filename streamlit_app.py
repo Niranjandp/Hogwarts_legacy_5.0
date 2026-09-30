@@ -1,5 +1,5 @@
 """
-EVolve: Intelligent EV Route Charging Optimizer
+EVlove: Intelligent EV Route Charging Optimizer
 Streamlit Interactive Dashboard
 """
 
@@ -74,7 +74,7 @@ from core.quantum_specialist import get_quantum_specialist_solution, format_spec
 # ==============================================================================
 
 st.set_page_config(
-    page_title="EVolve - Intelligent EV Route Charging Optimizer",
+    page_title="EVlove - Intelligent EV Route Charging Optimizer",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="auto",
@@ -299,7 +299,7 @@ if "qubo_beta_max" not in st.session_state:
 # HEADER SECTION
 # ==============================================================================
 
-st.markdown('<div class="main-title">EVolve: Enterprise EV Charging Optimization System</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-title">EVlove: Enterprise EV Charging Optimization System</div>', unsafe_allow_html=True)
 route_dist = st.session_state["route_points"][-1][2] if st.session_state["route_points"] else 0.0
 st.markdown(
     f'<div class="sub-title">Real-time corridor optimization evaluating <b>Classical Dynamic Programming</b> and <b>Quantum-Inspired QUBO heuristics</b> along the <b>{st.session_state["origin"]} ➔ {st.session_state["dest"]}</b> highway corridor ({route_dist:.0f} km).</div>',
@@ -1346,6 +1346,6 @@ st.text_area("Generated Summary Report", value=report_text, height=220)
 st.download_button(
     label="Download Full Optimization Report (.txt)",
     data=report_text,
-    file_name=f"EVolve_Report_{time.strftime('%Y%m%d_%H%M%S')}.txt",
+    file_name=f"EVlove_Report_{time.strftime('%Y%m%d_%H%M%S')}.txt",
     mime="text/plain",
 )
